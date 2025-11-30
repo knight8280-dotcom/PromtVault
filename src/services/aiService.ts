@@ -22,6 +22,47 @@ class OpenAIProvider implements AIProvider {
   }
 
   async generate(prompt: string, options: AIGenerateOptions = {}): Promise<string> {
+    const systemPrompt = `You are an expert AI assistant with deep analytical capabilities. Your role is to:
+
+1. **Deeply Analyze the User's Intent**: 
+   - Understand what they're really trying to achieve, not just what they explicitly asked for
+   - Identify underlying goals, motivations, and desired outcomes
+   - Consider the context and use case behind the request
+
+2. **Think Comprehensively**:
+   - Explore angles the user might not have considered
+   - Identify potential gaps, edge cases, or important factors they may have overlooked
+   - Consider best practices, industry standards, and expert recommendations
+   - Think about potential challenges, risks, or obstacles
+
+3. **Provide Enhanced, Detailed Responses**:
+   - Expand on the original prompt with rich detail and depth
+   - Add valuable information, insights, and considerations the user may not have thought about
+   - Structure the response clearly with sections, examples, and actionable guidance
+   - Include relevant context, background information, and expert perspectives
+   - Suggest improvements, alternatives, or complementary approaches
+
+4. **Be Proactive and Insightful**:
+   - Don't just answer what was asked - anticipate what they need to know
+   - Add considerations like: timing, resources needed, potential pitfalls, success metrics
+   - Include examples, templates, or frameworks that could be helpful
+   - Think about the "why" behind recommendations, not just the "what"
+
+Your responses should be comprehensive, well-reasoned, and add significant value beyond the original prompt.`;
+
+    const userPrompt = `Analyze this prompt deeply and provide a comprehensive, enhanced response that:
+
+1. Understands the true intent and goals behind this request
+2. Adds valuable information, considerations, and insights the user may not have thought about
+3. Provides detailed, actionable guidance with examples
+4. Includes best practices, potential challenges, and expert recommendations
+5. Goes beyond the surface level to deliver real depth and value
+
+Original Prompt:
+${prompt}
+
+Now provide your enhanced, comprehensive response:`;
+
     const response = await fetch(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
@@ -33,15 +74,15 @@ class OpenAIProvider implements AIProvider {
         messages: [
           {
             role: 'system',
-            content: 'You are an expert AI assistant that helps enhance and expand prompts with detailed, in-depth thinking and comprehensive responses. Provide thorough, well-structured, and insightful content.',
+            content: systemPrompt,
           },
           {
             role: 'user',
-            content: prompt,
+            content: userPrompt,
           },
         ],
-        temperature: options.temperature ?? 0.7,
-        max_tokens: options.maxTokens ?? 2000,
+        temperature: options.temperature ?? 0.8,
+        max_tokens: options.maxTokens ?? 3000,
       }),
     });
 
@@ -65,6 +106,47 @@ class AnthropicProvider implements AIProvider {
   }
 
   async generate(prompt: string, options: AIGenerateOptions = {}): Promise<string> {
+    const systemPrompt = `You are an expert AI assistant with deep analytical capabilities. Your role is to:
+
+1. **Deeply Analyze the User's Intent**: 
+   - Understand what they're really trying to achieve, not just what they explicitly asked for
+   - Identify underlying goals, motivations, and desired outcomes
+   - Consider the context and use case behind the request
+
+2. **Think Comprehensively**:
+   - Explore angles the user might not have considered
+   - Identify potential gaps, edge cases, or important factors they may have overlooked
+   - Consider best practices, industry standards, and expert recommendations
+   - Think about potential challenges, risks, or obstacles
+
+3. **Provide Enhanced, Detailed Responses**:
+   - Expand on the original prompt with rich detail and depth
+   - Add valuable information, insights, and considerations the user may not have thought about
+   - Structure the response clearly with sections, examples, and actionable guidance
+   - Include relevant context, background information, and expert perspectives
+   - Suggest improvements, alternatives, or complementary approaches
+
+4. **Be Proactive and Insightful**:
+   - Don't just answer what was asked - anticipate what they need to know
+   - Add considerations like: timing, resources needed, potential pitfalls, success metrics
+   - Include examples, templates, or frameworks that could be helpful
+   - Think about the "why" behind recommendations, not just the "what"
+
+Your responses should be comprehensive, well-reasoned, and add significant value beyond the original prompt.`;
+
+    const userPrompt = `Analyze this prompt deeply and provide a comprehensive, enhanced response that:
+
+1. Understands the true intent and goals behind this request
+2. Adds valuable information, considerations, and insights the user may not have thought about
+3. Provides detailed, actionable guidance with examples
+4. Includes best practices, potential challenges, and expert recommendations
+5. Goes beyond the surface level to deliver real depth and value
+
+Original Prompt:
+${prompt}
+
+Now provide your enhanced, comprehensive response:`;
+
     const response = await fetch(`${this.baseUrl}/messages`, {
       method: 'POST',
       headers: {
@@ -74,15 +156,15 @@ class AnthropicProvider implements AIProvider {
       },
       body: JSON.stringify({
         model: options.model || 'claude-3-5-sonnet-20241022',
-        max_tokens: options.maxTokens ?? 2000,
-        temperature: options.temperature ?? 0.7,
+        max_tokens: options.maxTokens ?? 3000,
+        temperature: options.temperature ?? 0.8,
         messages: [
           {
             role: 'user',
-            content: prompt,
+            content: userPrompt,
           },
         ],
-        system: 'You are an expert AI assistant that helps enhance and expand prompts with detailed, in-depth thinking and comprehensive responses. Provide thorough, well-structured, and insightful content.',
+        system: systemPrompt,
       }),
     });
 
@@ -102,42 +184,110 @@ class MockAIProvider implements AIProvider {
   
   async generate(prompt: string, options: AIGenerateOptions = {}): Promise<string> {
     // Simulate API delay
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    await new Promise(resolve => setTimeout(resolve, 2000));
     
-    // Generate a mock enhanced response
-    return `# Enhanced Response
+    // Generate a more thoughtful mock enhanced response
+    return `# Deep Analysis & Enhanced Response
 
-Based on your prompt, here's a comprehensive and detailed response:
+## Understanding Your Intent
 
-## Analysis
+After analyzing your prompt, I can see you're looking for: [The AI would identify the core goal here]
 
+But let me dig deeper into what you might really need:
+
+### What You Asked For
 ${prompt}
 
-## Detailed Breakdown
+### What You Might Also Need (Things You May Not Have Considered)
 
-This prompt requires careful consideration of multiple factors:
+1. **Context & Background**: 
+   - What's the broader context or situation?
+   - Are there industry-specific considerations?
+   - What's the timeline or urgency?
 
-1. **Context Understanding**: The prompt addresses a specific need that requires...
-2. **Key Components**: Breaking down the requirements reveals several important elements...
-3. **Best Practices**: Following industry standards, the approach should include...
+2. **Potential Challenges**:
+   - Common pitfalls others have encountered
+   - Resource requirements you might need
+   - Dependencies or prerequisites
 
-## In-Depth Response
+3. **Success Metrics**:
+   - How will you measure success?
+   - What does "good" look like?
+   - What are the key indicators?
 
-The enhanced version of your prompt would include:
+## Comprehensive Enhanced Response
 
-- **Expanded Context**: More background information and reasoning
-- **Detailed Steps**: Step-by-step breakdown of the process
-- **Examples**: Concrete examples to illustrate the concepts
-- **Considerations**: Important factors to keep in mind
-- **Best Practices**: Recommendations based on experience
+### 1. Core Requirements (What You Asked)
+[Detailed breakdown of the original request with expanded context]
 
-## Conclusion
+### 2. Additional Considerations (What You Might Not Have Thought About)
 
-This enhanced approach provides a more comprehensive solution that addresses the core requirements while also considering edge cases and providing actionable insights.
+**Important Factors:**
+- [Factor 1]: Why this matters and how it impacts the outcome
+- [Factor 2]: Potential implications and how to address them
+- [Factor 3]: Best practices from industry experts
+
+**Edge Cases & Scenarios:**
+- What happens in different situations?
+- How to handle exceptions or variations?
+- What if circumstances change?
+
+**Resources & Prerequisites:**
+- What you'll need to succeed
+- Skills, tools, or knowledge required
+- Time and effort estimates
+
+### 3. Best Practices & Expert Recommendations
+
+Based on industry standards and expert knowledge:
+
+- **Recommended Approach**: [Why this works best]
+- **Alternative Methods**: [Other viable options]
+- **Common Mistakes to Avoid**: [What to watch out for]
+
+### 4. Actionable Steps & Examples
+
+**Step-by-Step Guide:**
+1. [Detailed step with reasoning]
+2. [Detailed step with reasoning]
+3. [Detailed step with reasoning]
+
+**Real-World Examples:**
+- Example scenario 1: [How it applies]
+- Example scenario 2: [Variation and adaptation]
+
+### 5. Advanced Considerations
+
+**Going Deeper:**
+- Long-term implications
+- Scalability considerations
+- Integration with other systems/processes
+- Future-proofing strategies
+
+**Expert Insights:**
+- What industry leaders do differently
+- Emerging trends to be aware of
+- Research-backed recommendations
+
+## Summary & Next Steps
+
+**Key Takeaways:**
+- [Main insight 1]
+- [Main insight 2]
+- [Main insight 3]
+
+**Recommended Next Actions:**
+1. [Action item]
+2. [Action item]
+3. [Action item]
+
+**Questions to Consider:**
+- [Thought-provoking question]
+- [Question to refine approach]
+- [Question to validate assumptions]
 
 ---
-
-*Note: This is a demo response. Connect an AI API key in settings for real AI-generated content.*`;
+*Note: This is a demo response showing the depth of analysis. Connect an AI API key in settings for real, personalized AI-generated content that deeply understands your specific needs.*`;
   }
 }
 
@@ -159,7 +309,7 @@ export const getAIProvider = (): AIProvider | null => {
   return new MockAIProvider();
 };
 
-// Generate enhanced response
+// Generate enhanced response with deep analysis
 export const generateEnhancedResponse = async (
   prompt: string,
   options: AIGenerateOptions = {}
@@ -170,7 +320,14 @@ export const generateEnhancedResponse = async (
     throw new Error('No AI provider configured');
   }
 
-  return provider.generate(prompt, options);
+  // Use higher temperature for more creative/exploratory thinking
+  const enhancedOptions = {
+    ...options,
+    temperature: options.temperature ?? 0.8, // Higher for more exploratory thinking
+    maxTokens: options.maxTokens ?? 3000, // More tokens for comprehensive responses
+  };
+
+  return provider.generate(prompt, enhancedOptions);
 };
 
 // Save API key to localStorage

@@ -37,8 +37,8 @@ export const EnhancedPrompt: React.FC<EnhancedPromptProps> = ({ prompt, onEnhanc
 
     try {
       const response = await generateEnhancedResponse(prompt, {
-        temperature: 0.7,
-        maxTokens: 2000,
+        temperature: 0.8, // Higher for more exploratory, creative thinking
+        maxTokens: 3000, // More tokens for comprehensive, detailed responses
       });
       
       setEnhanced(response);
@@ -91,7 +91,7 @@ export const EnhancedPrompt: React.FC<EnhancedPromptProps> = ({ prompt, onEnhanc
                 AI-Enhanced Response
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Get detailed, in-depth AI-generated content based on your prompt
+                Deep analysis that understands your intent and adds insights you may not have considered
               </p>
             </div>
           </div>
@@ -120,9 +120,16 @@ export const EnhancedPrompt: React.FC<EnhancedPromptProps> = ({ prompt, onEnhanc
 
         {!showEnhanced ? (
           <div className="text-center py-8">
-            <p className="text-gray-600 dark:text-gray-400 mb-4">
-              Click the button below to generate an AI-enhanced, detailed response based on your prompt.
+            <p className="text-gray-600 dark:text-gray-400 mb-2">
+              Get a deep, comprehensive analysis that:
             </p>
+            <ul className="text-sm text-gray-600 dark:text-gray-400 mb-4 text-left max-w-md mx-auto space-y-1">
+              <li>• Understands your true intent and goals</li>
+              <li>• Adds valuable insights you may not have considered</li>
+              <li>• Includes best practices and expert recommendations</li>
+              <li>• Explores edge cases and potential challenges</li>
+              <li>• Provides actionable guidance with examples</li>
+            </ul>
             <Button
               onClick={handleGenerate}
               isLoading={loading}
