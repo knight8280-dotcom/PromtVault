@@ -4,7 +4,7 @@ import { Card } from '../UI/Card';
 import { Button } from '../UI/Button';
 import { Modal } from '../UI/Modal';
 import { Input } from '../UI/Input';
-import { generateEnhancedResponse, getAIProvider, saveAPIKey, getAPIKey, clearAPIKey } from '../../services/aiService';
+import { generateEnhancedResponse, getAIProvider, saveAPIKey, getAPIKey, clearAPIKey, testAPIConnection } from '../../services/aiService';
 import { copyToClipboard } from '../../utils/helpers';
 
 interface EnhancedPromptProps {
@@ -21,6 +21,8 @@ export const EnhancedPrompt: React.FC<EnhancedPromptProps> = ({ prompt, onEnhanc
   const [apiKey, setApiKey] = useState('');
   const [selectedProvider, setSelectedProvider] = useState<'openai' | 'anthropic'>('openai');
   const [showEnhanced, setShowEnhanced] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<{ success: boolean; message: string } | null>(null);
 
   const provider = getAIProvider();
   const hasAPIKey = provider && provider.name !== 'Mock (Demo)';
@@ -63,11 +65,43 @@ export const EnhancedPrompt: React.FC<EnhancedPromptProps> = ({ prompt, onEnhanc
     }
   };
 
-  const handleSaveAPIKey = () => {
-    if (apiKey.trim()) {
+  const handleTestConnection = async () => {
+    if (!apiKey.trim()) {
+      setConnectionStatus({ success: false, message: 'Please enter an API key first' });
+      return;
+    }
+
+    setTestingConnection(true);
+    setConnectionStatus(null);
+
+    try {
+      const result = await testAPIConnection(selectedProvider, apiKey.trim());
+      setConnectionStatus(result);
+    } catch (error) {
+      setConnectionStatus({
+        success: false,
+        message: error instanceof Error ? error.message : 'Connection test failed',
+      });
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  const handleSaveAPIKey = async () => {
+    if (!apiKey.trim()) {
+      return;
+    }
+
+    // Test connection before saving
+    setTestingConnection(true);
+    const testResult = await testAPIConnection(selectedProvider, apiKey.trim());
+    setTestingConnection(false);
+    setConnectionStatus(testResult);
+
+    if (testResult.success) {
       saveAPIKey(selectedProvider, apiKey.trim());
-      setShowSettings(false);
       setApiKey('');
+      setShowSettings(false);
       window.location.reload(); // Reload to use new API key
     }
   };
@@ -249,10 +283,36 @@ export const EnhancedPrompt: React.FC<EnhancedPromptProps> = ({ prompt, onEnhanc
             </div>
           )}
 
+          {connectionStatus && (
+            <div className={`p-3 rounded-lg border ${
+              connectionStatus.success
+                ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+                : 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800'
+            }`}>
+              <p className={`text-sm ${
+                connectionStatus.success
+                  ? 'text-green-700 dark:text-green-300'
+                  : 'text-red-700 dark:text-red-300'
+              }`}>
+                {connectionStatus.success ? '✓' : '✗'} {connectionStatus.message}
+              </p>
+            </div>
+          )}
+
           <div className="flex gap-2">
             <Button
+              onClick={handleTestConnection}
+              variant="outline"
+              disabled={!apiKey.trim() || testingConnection}
+              isLoading={testingConnection}
+              className="flex-1"
+            >
+              {testingConnection ? 'Testing...' : 'Test Connection'}
+            </Button>
+            <Button
               onClick={handleSaveAPIKey}
-              disabled={!apiKey.trim()}
+              disabled={!apiKey.trim() || testingConnection}
+              isLoading={testingConnection}
               className="flex-1"
             >
               Save API Key
@@ -261,6 +321,7 @@ export const EnhancedPrompt: React.FC<EnhancedPromptProps> = ({ prompt, onEnhanc
               <Button
                 variant="danger"
                 onClick={handleClearAPIKey}
+                disabled={testingConnection}
               >
                 Clear
               </Button>

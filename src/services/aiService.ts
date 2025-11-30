@@ -4,6 +4,7 @@
 export interface AIProvider {
   name: string;
   generate(prompt: string, options?: AIGenerateOptions): Promise<string>;
+  testConnection?(): Promise<boolean>;
 }
 
 export interface AIGenerateOptions {
@@ -19,6 +20,20 @@ class OpenAIProvider implements AIProvider {
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
+  }
+
+  async testConnection(): Promise<boolean> {
+    try {
+      const response = await fetch(`${this.baseUrl}/models`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.apiKey}`,
+        },
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
   }
 
   async generate(prompt: string, options: AIGenerateOptions = {}): Promise<string> {
@@ -103,6 +118,28 @@ class AnthropicProvider implements AIProvider {
 
   constructor(apiKey: string) {
     this.apiKey = apiKey;
+  }
+
+  async testConnection(): Promise<boolean> {
+    try {
+      // Test with a minimal request
+      const response = await fetch(`${this.baseUrl}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-3-5-sonnet-20241022',
+          max_tokens: 10,
+          messages: [{ role: 'user', content: 'test' }],
+        }),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
   }
 
   async generate(prompt: string, options: AIGenerateOptions = {}): Promise<string> {
@@ -196,7 +233,7 @@ After analyzing your prompt, I can see you're looking for: [The AI would identif
 But let me dig deeper into what you might really need:
 
 ### What You Asked For
-${prompt}
+${_prompt}
 
 ### What You Might Also Need (Things You May Not Have Considered)
 
@@ -297,16 +334,48 @@ export const getAIProvider = (): AIProvider | null => {
   const openAIKey = import.meta.env.VITE_OPENAI_API_KEY || localStorage.getItem('openai_api_key');
   const anthropicKey = import.meta.env.VITE_ANTHROPIC_API_KEY || localStorage.getItem('anthropic_api_key');
 
-  if (openAIKey) {
-    return new OpenAIProvider(openAIKey);
+  if (openAIKey && openAIKey.trim()) {
+    return new OpenAIProvider(openAIKey.trim());
   }
   
-  if (anthropicKey) {
-    return new AnthropicProvider(anthropicKey);
+  if (anthropicKey && anthropicKey.trim()) {
+    return new AnthropicProvider(anthropicKey.trim());
   }
 
   // Return mock provider for demo
   return new MockAIProvider();
+};
+
+// Test API connection
+export const testAPIConnection = async (provider: 'openai' | 'anthropic', apiKey: string): Promise<{ success: boolean; message: string }> => {
+  try {
+    let aiProvider: AIProvider;
+    
+    if (provider === 'openai') {
+      aiProvider = new OpenAIProvider(apiKey.trim());
+    } else {
+      aiProvider = new AnthropicProvider(apiKey.trim());
+    }
+
+    if (aiProvider.testConnection) {
+      const isConnected = await aiProvider.testConnection();
+      if (isConnected) {
+        return { success: true, message: `${provider === 'openai' ? 'OpenAI' : 'Anthropic'} API connection successful!` };
+      } else {
+        return { success: false, message: 'API key is invalid or connection failed. Please check your key.' };
+      }
+    }
+
+    // Fallback: try a minimal generation request
+    try {
+      await aiProvider.generate('test', { maxTokens: 10 });
+      return { success: true, message: `${provider === 'openai' ? 'OpenAI' : 'Anthropic'} API connection successful!` };
+    } catch (error) {
+      return { success: false, message: error instanceof Error ? error.message : 'API key validation failed' };
+    }
+  } catch (error) {
+    return { success: false, message: error instanceof Error ? error.message : 'Failed to test connection' };
+  }
 };
 
 // Generate enhanced response with deep analysis
@@ -333,9 +402,9 @@ export const generateEnhancedResponse = async (
 // Save API key to localStorage
 export const saveAPIKey = (provider: 'openai' | 'anthropic', key: string): void => {
   if (provider === 'openai') {
-    localStorage.setItem('openai_api_key', key);
+    localStorage.setItem('openai_api_key', key.trim());
   } else {
-    localStorage.setItem('anthropic_api_key', key);
+    localStorage.setItem('anthropic_api_key', key.trim());
   }
 };
 
