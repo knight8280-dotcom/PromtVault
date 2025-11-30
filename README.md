@@ -12,6 +12,7 @@ A premium, fully-featured AI prompts marketplace and library built with React, T
 - **Rating & Reviews** - Rate and review prompts to help the community
 - **Copy to Clipboard** - One-click copy with visual feedback
 - **Prompt Templates** - Create reusable templates with variable placeholders
+- **AI-Enhanced Responses** - Generate detailed, in-depth AI responses based on your prompts (OpenAI/Anthropic)
 - **Export/Import** - Export your prompts collection or import from JSON
 - **Share Prompts** - Share prompts via unique URLs
 - **Trending & Popular** - Discover trending and recently added prompts
@@ -88,6 +89,38 @@ For testing purposes, a default admin account is created:
 
 - **Email:** admin@promptvault.com
 - **Password:** admin123
+
+## 🤖 AI Enhancement Feature
+
+The app includes an AI enhancement feature that generates detailed, in-depth responses based on your prompts. This goes beyond simple text replacement - the AI actually processes your prompt and creates comprehensive, thoughtful content.
+
+### Setting Up AI Integration
+
+1. **Go to any prompt detail page**
+2. **Click the settings icon** in the AI-Enhanced Response section
+3. **Choose your AI provider:**
+   - **OpenAI (GPT-4)**: Get API key from [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+   - **Anthropic (Claude)**: Get API key from [console.anthropic.com](https://console.anthropic.com/)
+4. **Enter your API key** (stored locally, never sent to our servers)
+5. **Click "Save API Key"**
+
+### Using AI Enhancement
+
+1. View any prompt (with or without template variables filled in)
+2. Scroll to the **"AI-Enhanced Response"** section
+3. Click **"Generate Enhanced Response"**
+4. The AI will create a detailed, in-depth response based on your prompt
+5. Copy the enhanced response or regenerate for variations
+
+### Demo Mode
+
+If no API key is configured, the app runs in **demo mode** with mock responses so you can see how the feature works. Add an API key for real AI-generated content.
+
+### Environment Variables (Optional)
+
+You can also set API keys via environment variables:
+- `VITE_OPENAI_API_KEY` for OpenAI
+- `VITE_ANTHROPIC_API_KEY` for Anthropic
 
 ## 📝 Usage
 

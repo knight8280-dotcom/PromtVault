@@ -11,6 +11,7 @@ import { getPrompt, savePrompt, deletePrompt, getAllPrompts, saveUser, setCurren
 import { copyToClipboard, replaceVariables, formatDate } from '../utils/helpers';
 import ReactMarkdown from 'react-markdown';
 import { Prompt, PromptVariable, Review } from '../types';
+import { EnhancedPrompt } from '../components/AI/EnhancedPrompt';
 
 export const PromptDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -334,6 +335,11 @@ export const PromptDetail: React.FC = () => {
             </div>
           </div>
         </Card>
+
+        {/* AI-Enhanced Response */}
+        <div className="mb-6">
+          <EnhancedPrompt prompt={renderedContent} />
+        </div>
 
         {/* Actions */}
         <div className="flex items-center gap-4 mb-6">
