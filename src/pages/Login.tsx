@@ -5,7 +5,7 @@ import { Card } from '../components/UI/Card';
 import { Button } from '../components/UI/Button';
 import { Input } from '../components/UI/Input';
 import { useApp } from '../context/AppContext';
-import { getUserByEmail, saveUser, setCurrentUser } from '../utils/storage';
+import { getUserByEmail, setCurrentUser } from '../utils/storage';
 import { validateEmail } from '../utils/helpers';
 
 export const Login: React.FC = () => {

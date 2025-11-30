@@ -13,7 +13,7 @@ import { Prompt, PromptVariable } from '../types';
 export const CreatePrompt: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user, categories, setPrompts, prompts, addNotification } = useApp();
+  const { user, categories, setPrompts, addNotification } = useApp();
   const [loading, setLoading] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -128,10 +128,6 @@ export const CreatePrompt: React.FC = () => {
     const updated = [...variables];
     updated[index] = { ...updated[index], [field]: value };
     setVariables(updated);
-  };
-
-  const addVariable = () => {
-    setVariables([...variables, { name: '', placeholder: '', required: false }]);
   };
 
   const removeVariable = (index: number) => {

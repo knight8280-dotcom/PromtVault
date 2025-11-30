@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { Copy, Check, Share2, Heart, Star, Eye, Calendar, User, Edit, Trash2, ThumbsUp, MessageSquare } from 'lucide-react';
+import { Copy, Check, Share2, Heart, Star, Eye, Calendar, User, Edit, Trash2, MessageSquare } from 'lucide-react';
 import { Card } from '../components/UI/Card';
 import { Button } from '../components/UI/Button';
 import { Modal } from '../components/UI/Modal';
@@ -9,8 +9,7 @@ import { Textarea } from '../components/UI/Textarea';
 import { useApp } from '../context/AppContext';
 import { getPrompt, savePrompt, deletePrompt, getAllPrompts, saveUser, setCurrentUser } from '../utils/storage';
 import { copyToClipboard, replaceVariables, formatDate } from '../utils/helpers';
-import ReactMarkdown from 'react-markdown';
-import { Prompt, PromptVariable, Review } from '../types';
+import { Prompt, Review } from '../types';
 import { EnhancedPrompt } from '../components/AI/EnhancedPrompt';
 
 export const PromptDetail: React.FC = () => {

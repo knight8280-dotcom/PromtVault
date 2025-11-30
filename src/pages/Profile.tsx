@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { User, Heart, BookOpen, Download, Upload, Trash2 } from 'lucide-react';
+import { User, Heart, BookOpen, Download, Upload } from 'lucide-react';
 import { Card } from '../components/UI/Card';
 import { Button } from '../components/UI/Button';
 import { useApp } from '../context/AppContext';
-import { getAllPrompts, exportPrompts, importPrompts, savePrompt } from '../utils/storage';
+import { getAllPrompts, savePrompt } from '../utils/storage';
+import { exportPrompts, importPrompts } from '../utils/helpers';
 import { formatDate } from '../utils/helpers';
 import { Prompt } from '../types';
 
@@ -123,11 +124,11 @@ export const Profile: React.FC = () => {
                 <Download className="w-4 h-4 mr-2" />
                 Export
               </Button>
-              <label>
-                <Button variant="outline" as="span">
+              <label className="cursor-pointer">
+                <span className="inline-flex items-center px-4 py-2 text-sm font-medium border-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                   <Upload className="w-4 h-4 mr-2" />
                   Import
-                </Button>
+                </span>
                 <input
                   type="file"
                   accept=".json"

@@ -5,13 +5,13 @@ import { Card } from '../components/UI/Card';
 import { Button } from '../components/UI/Button';
 import { Input } from '../components/UI/Input';
 import { useApp } from '../context/AppContext';
-import { getAllUsers, deleteUser, deletePrompt, getAllPrompts } from '../utils/storage';
+import { getAllUsers, deleteUser, deletePrompt } from '../utils/storage';
 import { formatDate } from '../utils/helpers';
-import { User as UserType, Prompt } from '../types';
+import { User as UserType } from '../types';
 
 export const Admin: React.FC = () => {
   const navigate = useNavigate();
-  const { user, prompts, setPrompts, setCategories, categories, addNotification } = useApp();
+  const { user, prompts, setPrompts, addNotification } = useApp();
   const [activeTab, setActiveTab] = useState<'prompts' | 'users'>('prompts');
   const [searchQuery, setSearchQuery] = useState('');
   const [users, setUsers] = useState<UserType[]>([]);

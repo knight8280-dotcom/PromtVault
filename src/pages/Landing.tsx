@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Sparkles, Search, Star, Users, TrendingUp, Zap, Shield, Globe } from 'lucide-react';
+import { ArrowRight, Sparkles, Search, Star, TrendingUp, Zap, Shield, Globe } from 'lucide-react';
 import { Button } from '../components/UI/Button';
 import { Card } from '../components/UI/Card';
 import { useApp } from '../context/AppContext';

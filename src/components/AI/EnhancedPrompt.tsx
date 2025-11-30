@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Loader2, Copy, Check, Settings, X } from 'lucide-react';
+import { Sparkles, Loader2, Copy, Check, Settings } from 'lucide-react';
 import { Card } from '../UI/Card';
 import { Button } from '../UI/Button';
 import { Modal } from '../UI/Modal';

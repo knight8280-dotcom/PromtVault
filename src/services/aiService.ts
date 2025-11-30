@@ -182,7 +182,7 @@ Now provide your enhanced, comprehensive response:`;
 class MockAIProvider implements AIProvider {
   name = 'Mock (Demo)';
   
-  async generate(prompt: string, options: AIGenerateOptions = {}): Promise<string> {
+  async generate(_prompt: string, _options: AIGenerateOptions = {}): Promise<string> {
     // Simulate API delay
     await new Promise(resolve => setTimeout(resolve, 2000));
     

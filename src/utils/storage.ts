@@ -185,8 +185,6 @@ export const setTheme = (theme: 'light' | 'dark'): void => {
 
 // Initialize default data
 export const initializeDefaultData = async (): Promise<void> => {
-  const db = await initDB();
-  
   // Check if data already exists
   const existingPrompts = await getAllPrompts();
   if (existingPrompts.length > 0) return;
