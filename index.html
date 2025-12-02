@@ -10,7 +10,7 @@
     <div class="container">
         <header>
             <h1>🎯 PromptVault</h1>
-            <p class="tagline">Craft powerful AI prompts that get results</p>
+            <p class="tagline">Create, save, and reuse powerful AI prompts</p>
         </header>
 
         <main>
@@ -37,9 +37,30 @@
                 </div>
                 <div class="button-group">
                     <button class="btn-secondary" onclick="copyPrompt()">📋 Copy to Clipboard</button>
+                    <button class="btn-secondary" onclick="showSaveDialog()">💾 Save Prompt</button>
                     <button class="btn-secondary" onclick="resetForm()">🔄 Create Another</button>
                 </div>
                 <div id="copyFeedback" class="copy-feedback"></div>
+                
+                <!-- Save Dialog -->
+                <div id="saveDialog" class="save-dialog" style="display: none;">
+                    <h3>Save Prompt</h3>
+                    <div class="form-group">
+                        <label for="promptName">Prompt Name</label>
+                        <input type="text" id="promptName" placeholder="e.g., Blog Post Generator" maxlength="50">
+                    </div>
+                    <div class="button-group">
+                        <button class="btn-primary" onclick="savePrompt()">💾 Save</button>
+                        <button class="btn-secondary" onclick="hideSaveDialog()">Cancel</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="saved-prompts-section" id="savedPromptsSection">
+                <h2>📚 Saved Prompts</h2>
+                <div id="savedPromptsList" class="saved-prompts-list">
+                    <p class="empty-state" id="emptyState">No saved prompts yet. Generate and save your first prompt to get started!</p>
+                </div>
             </section>
         </main>
 

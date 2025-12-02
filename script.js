@@ -1,3 +1,9 @@
+// Store current prompt data globally
+let currentPromptData = {
+    userInput: '',
+    generatedPrompt: ''
+};
+
 // Simple prompt generation from user input
 function generatePrompt() {
     try {
@@ -16,8 +22,12 @@ function generatePrompt() {
             return;
         }
 
+        // Store user input
+        currentPromptData.userInput = userInput;
+
         // Generate structured prompt from simple input
         const generatedPrompt = buildPromptFromInput(userInput);
+        currentPromptData.generatedPrompt = generatedPrompt;
 
         // Display the generated prompt
         const generatedPromptEl = document.getElementById('generatedPrompt');
@@ -286,7 +296,243 @@ function resetForm() {
     }
 }
 
-// Allow Enter key to generate (Shift+Enter for new line)
+// Prompt Storage Functions
+function getSavedPrompts() {
+    try {
+        const saved = localStorage.getItem('promptVault_savedPrompts');
+        return saved ? JSON.parse(saved) : [];
+    } catch (error) {
+        console.error('Error loading saved prompts:', error);
+        return [];
+    }
+}
+
+function savePromptsToStorage(prompts) {
+    try {
+        localStorage.setItem('promptVault_savedPrompts', JSON.stringify(prompts));
+    } catch (error) {
+        console.error('Error saving prompts:', error);
+        alert('Error saving prompt. Your browser may not support local storage.');
+    }
+}
+
+function showSaveDialog() {
+    const saveDialog = document.getElementById('saveDialog');
+    const promptNameInput = document.getElementById('promptName');
+    
+    if (saveDialog && promptNameInput) {
+        saveDialog.style.display = 'block';
+        promptNameInput.value = '';
+        promptNameInput.focus();
+    }
+}
+
+function hideSaveDialog() {
+    const saveDialog = document.getElementById('saveDialog');
+    if (saveDialog) {
+        saveDialog.style.display = 'none';
+    }
+}
+
+function savePrompt() {
+    try {
+        const promptNameEl = document.getElementById('promptName');
+        if (!promptNameEl) return;
+
+        const promptName = promptNameEl.value.trim();
+        
+        if (!promptName) {
+            alert('Please enter a name for your prompt!');
+            promptNameEl.focus();
+            return;
+        }
+
+        if (!currentPromptData.generatedPrompt) {
+            alert('No prompt to save. Please generate a prompt first.');
+            return;
+        }
+
+        const savedPrompts = getSavedPrompts();
+        
+        // Check if name already exists
+        const existingIndex = savedPrompts.findIndex(p => p.name.toLowerCase() === promptName.toLowerCase());
+        
+        const promptToSave = {
+            id: existingIndex >= 0 ? savedPrompts[existingIndex].id : Date.now().toString(),
+            name: promptName,
+            userInput: currentPromptData.userInput,
+            generatedPrompt: currentPromptData.generatedPrompt,
+            createdAt: existingIndex >= 0 ? savedPrompts[existingIndex].createdAt : new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+
+        if (existingIndex >= 0) {
+            // Update existing
+            savedPrompts[existingIndex] = promptToSave;
+        } else {
+            // Add new
+            savedPrompts.push(promptToSave);
+        }
+
+        // Sort by updated date (newest first)
+        savedPrompts.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+
+        savePromptsToStorage(savedPrompts);
+        hideSaveDialog();
+        displaySavedPrompts();
+        
+        // Show success feedback
+        const feedback = document.getElementById('copyFeedback');
+        if (feedback) {
+            feedback.textContent = existingIndex >= 0 ? '✓ Prompt updated!' : '✓ Prompt saved!';
+            feedback.style.display = 'block';
+            setTimeout(() => {
+                feedback.style.display = 'none';
+            }, 3000);
+        }
+    } catch (error) {
+        console.error('Error saving prompt:', error);
+        alert('An error occurred while saving the prompt.');
+    }
+}
+
+function displaySavedPrompts() {
+    const savedPromptsList = document.getElementById('savedPromptsList');
+    const emptyState = document.getElementById('emptyState');
+    
+    if (!savedPromptsList) return;
+
+    const savedPrompts = getSavedPrompts();
+
+    if (savedPrompts.length === 0) {
+        if (emptyState) emptyState.style.display = 'block';
+        savedPromptsList.innerHTML = '<p class="empty-state">No saved prompts yet. Generate and save your first prompt to get started!</p>';
+        return;
+    }
+
+    if (emptyState) emptyState.style.display = 'none';
+
+    savedPromptsList.innerHTML = savedPrompts.map(prompt => `
+        <div class="saved-prompt-card" data-id="${prompt.id}">
+            <div class="saved-prompt-header">
+                <h3>${escapeHtml(prompt.name)}</h3>
+                <div class="saved-prompt-actions">
+                    <button class="btn-icon" onclick="loadPrompt('${prompt.id}')" title="Load">📂</button>
+                    <button class="btn-icon" onclick="copySavedPrompt('${prompt.id}')" title="Copy">📋</button>
+                    <button class="btn-icon" onclick="deletePrompt('${prompt.id}')" title="Delete">🗑️</button>
+                </div>
+            </div>
+            <div class="saved-prompt-preview">
+                <p class="saved-prompt-user-input">${escapeHtml(prompt.userInput.substring(0, 100))}${prompt.userInput.length > 100 ? '...' : ''}</p>
+                <div class="saved-prompt-meta">
+                    <span>Created: ${formatDate(prompt.createdAt)}</span>
+                    ${prompt.updatedAt !== prompt.createdAt ? `<span>Updated: ${formatDate(prompt.updatedAt)}</span>` : ''}
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function loadPrompt(id) {
+    try {
+        const savedPrompts = getSavedPrompts();
+        const prompt = savedPrompts.find(p => p.id === id);
+        
+        if (!prompt) {
+            alert('Prompt not found.');
+            return;
+        }
+
+        // Load into form
+        const userInputEl = document.getElementById('userInput');
+        if (userInputEl) {
+            userInputEl.value = prompt.userInput;
+        }
+
+        // Display the generated prompt
+        const generatedPromptEl = document.getElementById('generatedPrompt');
+        const outputSectionEl = document.getElementById('outputSection');
+        
+        if (generatedPromptEl && outputSectionEl) {
+            generatedPromptEl.textContent = prompt.generatedPrompt;
+            outputSectionEl.style.display = 'block';
+            currentPromptData = {
+                userInput: prompt.userInput,
+                generatedPrompt: prompt.generatedPrompt
+            };
+            outputSectionEl.scrollIntoView({ behavior: 'smooth' });
+        }
+    } catch (error) {
+        console.error('Error loading prompt:', error);
+        alert('An error occurred while loading the prompt.');
+    }
+}
+
+function copySavedPrompt(id) {
+    try {
+        const savedPrompts = getSavedPrompts();
+        const prompt = savedPrompts.find(p => p.id === id);
+        
+        if (!prompt) {
+            alert('Prompt not found.');
+            return;
+        }
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(prompt.generatedPrompt).then(() => {
+                const feedback = document.getElementById('copyFeedback');
+                if (feedback) {
+                    feedback.textContent = '✓ Copied to clipboard!';
+                    feedback.style.display = 'block';
+                    setTimeout(() => {
+                        feedback.style.display = 'none';
+                    }, 3000);
+                }
+            }).catch(err => {
+                console.error('Clipboard error:', err);
+                alert('Failed to copy. Please try again.');
+            });
+        } else {
+            alert('Clipboard not available. Please copy manually.');
+        }
+    } catch (error) {
+        console.error('Error copying prompt:', error);
+        alert('An error occurred while copying the prompt.');
+    }
+}
+
+function deletePrompt(id) {
+    if (!confirm('Are you sure you want to delete this prompt?')) {
+        return;
+    }
+
+    try {
+        const savedPrompts = getSavedPrompts();
+        const filtered = savedPrompts.filter(p => p.id !== id);
+        savePromptsToStorage(filtered);
+        displaySavedPrompts();
+    } catch (error) {
+        console.error('Error deleting prompt:', error);
+        alert('An error occurred while deleting the prompt.');
+    }
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function formatDate(dateString) {
+    try {
+        const date = new Date(dateString);
+        return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (error) {
+        return dateString;
+    }
+}
+
+// Allow Enter key to generate (Ctrl+Enter for new line)
 document.addEventListener('DOMContentLoaded', function() {
     const userInputEl = document.getElementById('userInput');
     if (userInputEl) {
@@ -295,6 +541,23 @@ document.addEventListener('DOMContentLoaded', function() {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 e.preventDefault();
                 generatePrompt();
+            }
+        });
+    }
+
+    // Load saved prompts on page load
+    displaySavedPrompts();
+
+    // Allow Enter key in save dialog to save
+    const promptNameInput = document.getElementById('promptName');
+    if (promptNameInput) {
+        promptNameInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                savePrompt();
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                hideSaveDialog();
             }
         });
     }
