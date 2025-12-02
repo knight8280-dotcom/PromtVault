@@ -39,9 +39,29 @@ function generatePrompt() {
             return;
         }
 
+        // Set the generated prompt text
         generatedPromptEl.textContent = generatedPrompt;
+        
+        // Make sure save dialog is hidden when showing the generated prompt
+        const saveDialog = document.getElementById('saveDialog');
+        if (saveDialog) {
+            saveDialog.style.display = 'none';
+        }
+        
+        // Show the output section with the generated prompt
         outputSectionEl.style.display = 'block';
-        outputSectionEl.scrollIntoView({ behavior: 'smooth' });
+        
+        // Clear any previous feedback
+        const feedback = document.getElementById('copyFeedback');
+        if (feedback) {
+            feedback.style.display = 'none';
+            feedback.textContent = '';
+        }
+        
+        // Scroll to show the generated prompt
+        setTimeout(() => {
+            outputSectionEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
     } catch (error) {
         console.error('Error generating prompt:', error);
         alert('An error occurred while generating the prompt. Please check the console for details.');
@@ -54,12 +74,20 @@ function buildPromptFromInput(input) {
     
     let prompt = '';
     
-    // Start with a clear task statement
-    prompt += `TASK:\n${analysis.task}\n\n`;
+    // Start with a clear task statement - always include this
+    if (analysis.task && analysis.task.trim()) {
+        prompt += `TASK:\n${analysis.task}\n\n`;
+    } else {
+        // Fallback: use the entire input as the task
+        prompt += `TASK:\n${input}\n\n`;
+    }
     
     // Add context if detected or if the input is complex
-    if (analysis.context || analysis.hasContext) {
-        prompt += `CONTEXT:\n${analysis.context || 'Please consider the full context of this request.'}\n\n`;
+    if (analysis.context && analysis.context.trim()) {
+        prompt += `CONTEXT:\n${analysis.context}\n\n`;
+    } else if (analysis.hasContext && input.length > 100) {
+        // For longer inputs, add context section
+        prompt += `CONTEXT:\nPlease consider all the details and nuances provided in this request.\n\n`;
     }
     
     // Add requirements if detected
@@ -85,7 +113,7 @@ function buildPromptFromInput(input) {
     // Closing statement
     prompt += 'Please provide a comprehensive and well-structured response that addresses all aspects of this request.';
     
-    return prompt;
+    return prompt.trim();
 }
 
 function analyzeInput(input) {
@@ -214,9 +242,12 @@ function analyzeInput(input) {
         }
     }
     
-    // Clean up the task - remove redundant words if the input is very simple
-    if (analysis.task.length < 50 && !analysis.hasContext) {
-        // For very short inputs, use the whole thing as task
+    // Clean up the task - ensure we always have a task
+    if (!analysis.task || analysis.task.trim().length === 0) {
+        // If no task was extracted, use the input as the task
+        analysis.task = input.trim();
+    } else if (analysis.task.length < 50 && !analysis.hasContext && sentences.length === 1) {
+        // For very short single-sentence inputs, use the whole thing as task
         analysis.task = input.trim();
     }
     
@@ -317,6 +348,12 @@ function savePromptsToStorage(prompts) {
 }
 
 function showSaveDialog() {
+    // Only show save dialog if there's a generated prompt
+    if (!currentPromptData.generatedPrompt) {
+        alert('Please generate a prompt first!');
+        return;
+    }
+    
     const saveDialog = document.getElementById('saveDialog');
     const promptNameInput = document.getElementById('promptName');
     
@@ -324,6 +361,8 @@ function showSaveDialog() {
         saveDialog.style.display = 'block';
         promptNameInput.value = '';
         promptNameInput.focus();
+        // Scroll save dialog into view
+        saveDialog.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 }
 
