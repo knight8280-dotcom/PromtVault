@@ -65,11 +65,18 @@ section {
 
 section h2 {
     color: var(--text-primary);
-    margin-bottom: 25px;
+    margin-bottom: 15px;
     font-size: 1.5rem;
     display: flex;
     align-items: center;
     gap: 10px;
+}
+
+.subtitle {
+    color: var(--text-secondary);
+    font-size: 1rem;
+    margin-bottom: 25px;
+    line-height: 1.5;
 }
 
 /* Form Elements */
@@ -109,7 +116,9 @@ textarea:focus {
 
 textarea {
     resize: vertical;
-    min-height: 80px;
+    min-height: 120px;
+    font-size: 1rem;
+    line-height: 1.6;
 }
 
 select {

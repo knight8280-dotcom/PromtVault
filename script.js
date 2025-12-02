@@ -1,48 +1,23 @@
-// Prompt generation logic
+// Simple prompt generation from user input
 function generatePrompt() {
     try {
-        const promptTypeEl = document.getElementById('promptType');
-        const mainGoalEl = document.getElementById('mainGoal');
-        const contextEl = document.getElementById('context');
-        const requirementsEl = document.getElementById('requirements');
-        const outputFormatEl = document.getElementById('outputFormat');
-        const toneEl = document.getElementById('tone');
-        const examplesEl = document.getElementById('examples');
-        const avoidEl = document.getElementById('avoid');
-
-        // Check if all required elements exist
-        if (!promptTypeEl || !mainGoalEl) {
-            console.error('Required form elements not found');
-            alert('Error: Form elements not found. Please refresh the page.');
+        const userInputEl = document.getElementById('userInput');
+        if (!userInputEl) {
+            alert('Error: Input field not found. Please refresh the page.');
             return;
         }
 
-        const promptType = promptTypeEl.value;
-        const mainGoal = mainGoalEl.value.trim();
-        const context = contextEl ? contextEl.value.trim() : '';
-        const requirements = requirementsEl ? requirementsEl.value.trim() : '';
-        const outputFormat = outputFormatEl ? outputFormatEl.value.trim() : '';
-        const tone = toneEl ? toneEl.value : '';
-        const examples = examplesEl ? examplesEl.value.trim() : '';
-        const avoid = avoidEl ? avoidEl.value.trim() : '';
+        const userInput = userInputEl.value.trim();
 
         // Validation
-        if (!mainGoal) {
-            alert('Please describe what you want to accomplish!');
+        if (!userInput) {
+            alert('Please describe what you want to do!');
+            userInputEl.focus();
             return;
         }
 
-        // Build the prompt based on type
-        let generatedPrompt = buildPrompt({
-            promptType,
-            mainGoal,
-            context,
-            requirements,
-            outputFormat,
-            tone,
-            examples,
-            avoid
-        });
+        // Generate structured prompt from simple input
+        const generatedPrompt = buildPromptFromInput(userInput);
 
         // Display the generated prompt
         const generatedPromptEl = document.getElementById('generatedPrompt');
@@ -63,82 +38,179 @@ function generatePrompt() {
     }
 }
 
-function buildPrompt(data) {
+function buildPromptFromInput(input) {
+    // Analyze the input to extract key information
+    const analysis = analyzeInput(input);
+    
     let prompt = '';
-
-    // Add type-specific introduction
-    const typeIntros = {
-        general: 'I need your help with the following:',
-        creative: 'I need you to help me create creative content:',
-        code: 'I need you to help me with code development:',
-        analysis: 'I need you to analyze and provide insights on:',
-        brainstorm: 'I need you to help me brainstorm ideas for:',
-        learning: 'I need you to help me understand and learn about:',
-        editing: 'I need you to help me edit and refine:'
-    };
-
-    prompt += typeIntros[data.promptType] || typeIntros.general;
-    prompt += '\n\n';
-
-    // Main Goal
-    prompt += `TASK: ${data.mainGoal}\n\n`;
-
-    // Context
-    if (data.context) {
-        prompt += `CONTEXT:\n${data.context}\n\n`;
+    
+    // Start with a clear task statement
+    prompt += `TASK:\n${analysis.task}\n\n`;
+    
+    // Add context if detected or if the input is complex
+    if (analysis.context || analysis.hasContext) {
+        prompt += `CONTEXT:\n${analysis.context || 'Please consider the full context of this request.'}\n\n`;
     }
-
-    // Requirements
-    if (data.requirements) {
-        prompt += `REQUIREMENTS:\n${data.requirements}\n\n`;
+    
+    // Add requirements if detected
+    if (analysis.requirements.length > 0) {
+        prompt += `REQUIREMENTS:\n${analysis.requirements.join('\n')}\n\n`;
     }
-
-    // Output Format
-    if (data.outputFormat) {
-        prompt += `OUTPUT FORMAT: ${data.outputFormat}\n\n`;
+    
+    // Add output format if detected
+    if (analysis.outputFormat) {
+        prompt += `OUTPUT FORMAT: ${analysis.outputFormat}\n\n`;
     }
-
-    // Tone
-    if (data.tone) {
-        const toneDescriptions = {
-            professional: 'Professional and business-appropriate',
-            casual: 'Casual, friendly, and conversational',
-            technical: 'Technical and precise with proper terminology',
-            creative: 'Creative, engaging, and imaginative',
-            formal: 'Formal and academic',
-            concise: 'Concise and to-the-point'
-        };
-        prompt += `TONE: ${toneDescriptions[data.tone]}\n\n`;
+    
+    // Add tone if detected
+    if (analysis.tone) {
+        prompt += `TONE: ${analysis.tone}\n\n`;
     }
-
-    // Examples
-    if (data.examples) {
-        prompt += `EXAMPLES OF WHAT I'M LOOKING FOR:\n${data.examples}\n\n`;
+    
+    // Add any specific instructions
+    if (analysis.instructions.length > 0) {
+        prompt += `ADDITIONAL INSTRUCTIONS:\n${analysis.instructions.join('\n')}\n\n`;
     }
-
-    // Avoid
-    if (data.avoid) {
-        prompt += `PLEASE AVOID:\n${data.avoid}\n\n`;
-    }
-
-    // Add type-specific guidance
-    const typeGuidance = {
-        creative: 'Please be creative and original in your response.',
-        code: 'Please include clear comments and follow best practices. Explain your approach.',
-        analysis: 'Please provide a thorough analysis with supporting evidence and clear reasoning.',
-        brainstorm: 'Please provide multiple diverse ideas with brief explanations for each.',
-        learning: 'Please explain concepts clearly with examples, as if teaching someone new to the topic.',
-        editing: 'Please provide specific suggestions for improvement and explain why each change would be beneficial.'
-    };
-
-    if (typeGuidance[data.promptType]) {
-        prompt += `${typeGuidance[data.promptType]}\n\n`;
-    }
-
-    // Final touch
-    prompt += 'Please provide a comprehensive and well-structured response.';
-
+    
+    // Closing statement
+    prompt += 'Please provide a comprehensive and well-structured response that addresses all aspects of this request.';
+    
     return prompt;
+}
+
+function analyzeInput(input) {
+    const lowerInput = input.toLowerCase();
+    const analysis = {
+        task: '',
+        context: '',
+        hasContext: false,
+        requirements: [],
+        outputFormat: '',
+        tone: '',
+        instructions: []
+    };
+    
+    // Extract the main task (usually the first sentence or main clause)
+    // Try to identify the core action
+    const taskPatterns = [
+        /^(write|create|generate|make|build|develop|design|explain|analyze|help me|i need|i want)/i,
+        /^(write|create|generate|make|build|develop|design|explain|analyze)/i
+    ];
+    
+    // Find the main task
+    let sentences = input.split(/[.!?]\s+/);
+    if (sentences.length === 0) sentences = [input];
+    
+    // The first sentence is usually the main task
+    analysis.task = sentences[0].trim();
+    if (sentences.length > 1) {
+        analysis.hasContext = true;
+        analysis.context = sentences.slice(1).join('. ').trim();
+    }
+    
+    // Detect output format preferences
+    const formatKeywords = {
+        'bullet points': ['bullet', 'bullets', 'list', 'points'],
+        'step-by-step guide': ['step by step', 'step-by-step', 'steps', 'guide', 'tutorial'],
+        'essay': ['essay', 'article', 'piece'],
+        'code with comments': ['code', 'function', 'script', 'program', 'javascript', 'python', 'html', 'css'],
+        'table': ['table', 'chart', 'spreadsheet'],
+        'outline': ['outline', 'structure', 'framework']
+    };
+    
+    for (const [format, keywords] of Object.entries(formatKeywords)) {
+        if (keywords.some(keyword => lowerInput.includes(keyword))) {
+            analysis.outputFormat = format;
+            break;
+        }
+    }
+    
+    // Detect tone preferences
+    const toneKeywords = {
+        'Professional and business-appropriate': ['professional', 'business', 'formal', 'corporate'],
+        'Casual, friendly, and conversational': ['casual', 'friendly', 'conversational', 'relaxed', 'informal'],
+        'Technical and precise with proper terminology': ['technical', 'precise', 'detailed', 'accurate'],
+        'Creative, engaging, and imaginative': ['creative', 'engaging', 'imaginative', 'fun', 'interesting'],
+        'Formal and academic': ['academic', 'scholarly', 'formal', 'research'],
+        'Concise and to-the-point': ['concise', 'brief', 'short', 'quick', 'summary']
+    };
+    
+    for (const [tone, keywords] of Object.entries(toneKeywords)) {
+        if (keywords.some(keyword => lowerInput.includes(keyword))) {
+            analysis.tone = tone;
+            break;
+        }
+    }
+    
+    // Extract specific requirements
+    const requirementPatterns = [
+        /(\d+)\s*(words?|characters?|pages?|paragraphs?|sentences?)/gi,
+        /(length|long|short|brief|detailed)/gi,
+        /(include|must|should|need to|require)/gi
+    ];
+    
+    // Look for explicit requirements
+    if (lowerInput.includes('include')) {
+        const includeMatch = input.match(/include[^.!?]*/i);
+        if (includeMatch) {
+            analysis.requirements.push(includeMatch[0].trim());
+        }
+    }
+    
+    if (lowerInput.includes('must') || lowerInput.includes('should')) {
+        const mustMatch = input.match(/(must|should)[^.!?]*/i);
+        if (mustMatch) {
+            analysis.requirements.push(mustMatch[0].trim());
+        }
+    }
+    
+    // Detect word count or length requirements
+    const lengthMatch = input.match(/(\d+)\s*(words?|characters?|pages?|paragraphs?)/i);
+    if (lengthMatch) {
+        analysis.requirements.push(`Length: ${lengthMatch[0]}`);
+    }
+    
+    // Detect audience mentions
+    const audienceMatch = input.match(/(for|target|audience|readers?|users?)\s+([^.!?,]+)/i);
+    if (audienceMatch && !analysis.context.includes(audienceMatch[0])) {
+        analysis.context = (analysis.context ? analysis.context + '\n' : '') + `Target audience: ${audienceMatch[2].trim()}`;
+    }
+    
+    // Detect topic/domain mentions for context
+    const domainKeywords = ['marketing', 'technical', 'business', 'educational', 'creative', 'scientific'];
+    for (const domain of domainKeywords) {
+        if (lowerInput.includes(domain) && !analysis.context.toLowerCase().includes(domain)) {
+            analysis.hasContext = true;
+            if (!analysis.context) {
+                analysis.context = `Domain: ${domain.charAt(0).toUpperCase() + domain.slice(1)}`;
+            }
+            break;
+        }
+    }
+    
+    // If no specific format detected but it's a writing task, suggest structured format
+    if (!analysis.outputFormat && (lowerInput.includes('write') || lowerInput.includes('create') || lowerInput.includes('blog') || lowerInput.includes('article'))) {
+        analysis.outputFormat = 'Well-structured and organized';
+    }
+    
+    // If no tone detected, infer from context
+    if (!analysis.tone) {
+        if (lowerInput.includes('blog') || lowerInput.includes('social media') || lowerInput.includes('casual')) {
+            analysis.tone = 'Casual, friendly, and conversational';
+        } else if (lowerInput.includes('code') || lowerInput.includes('technical') || lowerInput.includes('function')) {
+            analysis.tone = 'Technical and precise with proper terminology';
+        } else if (lowerInput.includes('business') || lowerInput.includes('professional') || lowerInput.includes('email')) {
+            analysis.tone = 'Professional and business-appropriate';
+        }
+    }
+    
+    // Clean up the task - remove redundant words if the input is very simple
+    if (analysis.task.length < 50 && !analysis.hasContext) {
+        // For very short inputs, use the whole thing as task
+        analysis.task = input.trim();
+    }
+    
+    return analysis;
 }
 
 function copyPrompt() {
@@ -193,33 +265,18 @@ function copyPrompt() {
 
 function resetForm() {
     try {
-        // Reset all form fields
-        const promptTypeEl = document.getElementById('promptType');
-        const mainGoalEl = document.getElementById('mainGoal');
-        const contextEl = document.getElementById('context');
-        const requirementsEl = document.getElementById('requirements');
-        const outputFormatEl = document.getElementById('outputFormat');
-        const toneEl = document.getElementById('tone');
-        const examplesEl = document.getElementById('examples');
-        const avoidEl = document.getElementById('avoid');
+        const userInputEl = document.getElementById('userInput');
         const outputSectionEl = document.getElementById('outputSection');
 
-        if (promptTypeEl) promptTypeEl.value = 'general';
-        if (mainGoalEl) mainGoalEl.value = '';
-        if (contextEl) contextEl.value = '';
-        if (requirementsEl) requirementsEl.value = '';
-        if (outputFormatEl) outputFormatEl.value = '';
-        if (toneEl) toneEl.value = '';
-        if (examplesEl) examplesEl.value = '';
-        if (avoidEl) avoidEl.value = '';
+        if (userInputEl) {
+            userInputEl.value = '';
+            userInputEl.focus();
+        }
 
         // Hide output section
         if (outputSectionEl) {
             outputSectionEl.style.display = 'none';
         }
-
-        // Update placeholders
-        updateFields();
 
         // Scroll to top
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -229,62 +286,16 @@ function resetForm() {
     }
 }
 
-function updateFields() {
-    // Update placeholders based on prompt type
-    const promptType = document.getElementById('promptType');
-    if (!promptType) return;
-    
-    const type = promptType.value;
-    const mainGoal = document.getElementById('mainGoal');
-    const context = document.getElementById('context');
-
-    if (!mainGoal || !context) return;
-
-    const placeholders = {
-        general: {
-            goal: 'e.g., Explain the concept of machine learning',
-            context: 'e.g., I\'m a beginner with basic programming knowledge'
-        },
-        creative: {
-            goal: 'e.g., Write a short story about a time traveler',
-            context: 'e.g., Target audience: young adults, Genre: sci-fi adventure'
-        },
-        code: {
-            goal: 'e.g., Create a function to validate email addresses',
-            context: 'e.g., Using JavaScript, needs to handle edge cases'
-        },
-        analysis: {
-            goal: 'e.g., Analyze the pros and cons of remote work',
-            context: 'e.g., Focus on productivity and work-life balance'
-        },
-        brainstorm: {
-            goal: 'e.g., Generate ideas for a mobile app',
-            context: 'e.g., Target market: college students, Budget: limited'
-        },
-        learning: {
-            goal: 'e.g., Teach me about blockchain technology',
-            context: 'e.g., I understand basic programming but not cryptocurrency'
-        },
-        editing: {
-            goal: 'e.g., Improve this paragraph for clarity and impact',
-            context: 'e.g., Academic essay, needs to be more concise'
-        }
-    };
-
-    if (placeholders[type]) {
-        mainGoal.placeholder = placeholders[type].goal;
-        context.placeholder = placeholders[type].context;
-    }
-}
-
-// Initialize when DOM is ready
+// Allow Enter key to generate (Shift+Enter for new line)
 document.addEventListener('DOMContentLoaded', function() {
-    const promptType = document.getElementById('promptType');
-    if (promptType) {
-        // Set initial placeholders
-        updateFields();
-        
-        // Add event listener for changes
-        promptType.addEventListener('change', updateFields);
+    const userInputEl = document.getElementById('userInput');
+    if (userInputEl) {
+        userInputEl.addEventListener('keydown', function(e) {
+            // Ctrl+Enter or Cmd+Enter to generate
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                generatePrompt();
+            }
+        });
     }
 });
