@@ -182,6 +182,11 @@ export const EnhancedPrompt: React.FC<EnhancedPromptProps> = ({ prompt, onEnhanc
                 </>
               )}
             </Button>
+            {!prompt.trim() && (
+              <p className="mt-2 text-xs text-red-600 dark:text-red-400">
+                Please fill in the prompt variables above first
+              </p>
+            )}
             {!hasAPIKey && (
               <p className="mt-4 text-xs text-gray-500 dark:text-gray-400">
                 Currently using demo mode. Add an API key in settings for real AI responses.
