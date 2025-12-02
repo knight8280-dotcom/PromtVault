@@ -1,36 +1,66 @@
 // Prompt generation logic
 function generatePrompt() {
-    const promptType = document.getElementById('promptType').value;
-    const mainGoal = document.getElementById('mainGoal').value.trim();
-    const context = document.getElementById('context').value.trim();
-    const requirements = document.getElementById('requirements').value.trim();
-    const outputFormat = document.getElementById('outputFormat').value.trim();
-    const tone = document.getElementById('tone').value;
-    const examples = document.getElementById('examples').value.trim();
-    const avoid = document.getElementById('avoid').value.trim();
+    try {
+        const promptTypeEl = document.getElementById('promptType');
+        const mainGoalEl = document.getElementById('mainGoal');
+        const contextEl = document.getElementById('context');
+        const requirementsEl = document.getElementById('requirements');
+        const outputFormatEl = document.getElementById('outputFormat');
+        const toneEl = document.getElementById('tone');
+        const examplesEl = document.getElementById('examples');
+        const avoidEl = document.getElementById('avoid');
 
-    // Validation
-    if (!mainGoal) {
-        alert('Please describe what you want to accomplish!');
-        return;
+        // Check if all required elements exist
+        if (!promptTypeEl || !mainGoalEl) {
+            console.error('Required form elements not found');
+            alert('Error: Form elements not found. Please refresh the page.');
+            return;
+        }
+
+        const promptType = promptTypeEl.value;
+        const mainGoal = mainGoalEl.value.trim();
+        const context = contextEl ? contextEl.value.trim() : '';
+        const requirements = requirementsEl ? requirementsEl.value.trim() : '';
+        const outputFormat = outputFormatEl ? outputFormatEl.value.trim() : '';
+        const tone = toneEl ? toneEl.value : '';
+        const examples = examplesEl ? examplesEl.value.trim() : '';
+        const avoid = avoidEl ? avoidEl.value.trim() : '';
+
+        // Validation
+        if (!mainGoal) {
+            alert('Please describe what you want to accomplish!');
+            return;
+        }
+
+        // Build the prompt based on type
+        let generatedPrompt = buildPrompt({
+            promptType,
+            mainGoal,
+            context,
+            requirements,
+            outputFormat,
+            tone,
+            examples,
+            avoid
+        });
+
+        // Display the generated prompt
+        const generatedPromptEl = document.getElementById('generatedPrompt');
+        const outputSectionEl = document.getElementById('outputSection');
+        
+        if (!generatedPromptEl || !outputSectionEl) {
+            console.error('Output elements not found');
+            alert('Error: Output elements not found. Please refresh the page.');
+            return;
+        }
+
+        generatedPromptEl.textContent = generatedPrompt;
+        outputSectionEl.style.display = 'block';
+        outputSectionEl.scrollIntoView({ behavior: 'smooth' });
+    } catch (error) {
+        console.error('Error generating prompt:', error);
+        alert('An error occurred while generating the prompt. Please check the console for details.');
     }
-
-    // Build the prompt based on type
-    let generatedPrompt = buildPrompt({
-        promptType,
-        mainGoal,
-        context,
-        requirements,
-        outputFormat,
-        tone,
-        examples,
-        avoid
-    });
-
-    // Display the generated prompt
-    document.getElementById('generatedPrompt').textContent = generatedPrompt;
-    document.getElementById('outputSection').style.display = 'block';
-    document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' });
 }
 
 function buildPrompt(data) {
@@ -112,55 +142,103 @@ function buildPrompt(data) {
 }
 
 function copyPrompt() {
-    const promptText = document.getElementById('generatedPrompt').textContent;
+    try {
+        const generatedPromptEl = document.getElementById('generatedPrompt');
+        if (!generatedPromptEl) {
+            alert('Error: Generated prompt not found.');
+            return;
+        }
 
-    // Copy to clipboard
-    navigator.clipboard.writeText(promptText).then(() => {
-        // Show feedback
-        const feedback = document.getElementById('copyFeedback');
-        feedback.textContent = '✓ Copied to clipboard!';
-        feedback.style.display = 'block';
+        const promptText = generatedPromptEl.textContent;
+        if (!promptText || promptText.trim() === '') {
+            alert('No prompt to copy. Please generate a prompt first.');
+            return;
+        }
 
-        setTimeout(() => {
-            feedback.style.display = 'none';
-        }, 3000);
-    }).catch(err => {
-        alert('Failed to copy. Please select and copy manually.');
-    });
+        // Copy to clipboard
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(promptText).then(() => {
+                // Show feedback
+                const feedback = document.getElementById('copyFeedback');
+                if (feedback) {
+                    feedback.textContent = '✓ Copied to clipboard!';
+                    feedback.style.display = 'block';
+
+                    setTimeout(() => {
+                        feedback.style.display = 'none';
+                    }, 3000);
+                }
+            }).catch(err => {
+                console.error('Clipboard error:', err);
+                // Fallback: select text for manual copy
+                const range = document.createRange();
+                range.selectNode(generatedPromptEl);
+                window.getSelection().removeAllRanges();
+                window.getSelection().addRange(range);
+                alert('Failed to copy automatically. Text has been selected - press Ctrl+C to copy.');
+            });
+        } else {
+            // Fallback for browsers without clipboard API
+            const range = document.createRange();
+            range.selectNode(generatedPromptEl);
+            window.getSelection().removeAllRanges();
+            window.getSelection().addRange(range);
+            alert('Text selected - press Ctrl+C to copy.');
+        }
+    } catch (error) {
+        console.error('Error copying prompt:', error);
+        alert('An error occurred while copying. Please select and copy manually.');
+    }
 }
 
 function resetForm() {
-    // Reset all form fields
-    document.getElementById('promptType').value = 'general';
-    document.getElementById('mainGoal').value = '';
-    document.getElementById('context').value = '';
-    document.getElementById('requirements').value = '';
-    document.getElementById('outputFormat').value = '';
-    document.getElementById('tone').value = '';
-    document.getElementById('examples').value = '';
-    document.getElementById('avoid').value = '';
+    try {
+        // Reset all form fields
+        const promptTypeEl = document.getElementById('promptType');
+        const mainGoalEl = document.getElementById('mainGoal');
+        const contextEl = document.getElementById('context');
+        const requirementsEl = document.getElementById('requirements');
+        const outputFormatEl = document.getElementById('outputFormat');
+        const toneEl = document.getElementById('tone');
+        const examplesEl = document.getElementById('examples');
+        const avoidEl = document.getElementById('avoid');
+        const outputSectionEl = document.getElementById('outputSection');
 
-    // Hide output section
-    document.getElementById('outputSection').style.display = 'none';
+        if (promptTypeEl) promptTypeEl.value = 'general';
+        if (mainGoalEl) mainGoalEl.value = '';
+        if (contextEl) contextEl.value = '';
+        if (requirementsEl) requirementsEl.value = '';
+        if (outputFormatEl) outputFormatEl.value = '';
+        if (toneEl) toneEl.value = '';
+        if (examplesEl) examplesEl.value = '';
+        if (avoidEl) avoidEl.value = '';
 
-    // Scroll to top
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+        // Hide output section
+        if (outputSectionEl) {
+            outputSectionEl.style.display = 'none';
+        }
+
+        // Update placeholders
+        updateFields();
+
+        // Scroll to top
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (error) {
+        console.error('Error resetting form:', error);
+        alert('An error occurred while resetting the form.');
+    }
 }
 
 function updateFields() {
-    // This function can be extended to show/hide fields based on prompt type
-    // For now, it's a placeholder for future enhancements
-    const promptType = document.getElementById('promptType').value;
-
-    // You can add logic here to show different fields or provide suggestions
-    // based on the selected prompt type
-}
-
-// Add some helpful placeholder updates based on prompt type
-document.getElementById('promptType').addEventListener('change', function() {
-    const type = this.value;
+    // Update placeholders based on prompt type
+    const promptType = document.getElementById('promptType');
+    if (!promptType) return;
+    
+    const type = promptType.value;
     const mainGoal = document.getElementById('mainGoal');
     const context = document.getElementById('context');
+
+    if (!mainGoal || !context) return;
 
     const placeholders = {
         general: {
@@ -196,5 +274,17 @@ document.getElementById('promptType').addEventListener('change', function() {
     if (placeholders[type]) {
         mainGoal.placeholder = placeholders[type].goal;
         context.placeholder = placeholders[type].context;
+    }
+}
+
+// Initialize when DOM is ready
+document.addEventListener('DOMContentLoaded', function() {
+    const promptType = document.getElementById('promptType');
+    if (promptType) {
+        // Set initial placeholders
+        updateFields();
+        
+        // Add event listener for changes
+        promptType.addEventListener('change', updateFields);
     }
 });
