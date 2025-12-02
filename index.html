@@ -10,70 +10,24 @@
     <div class="container">
         <header>
             <h1>🎯 PromptVault</h1>
-            <p class="tagline">Craft powerful AI prompts that get results</p>
+            <p class="tagline">Create, save, and reuse powerful AI prompts</p>
         </header>
 
         <main>
             <section class="prompt-builder">
-                <h2>Build Your Prompt</h2>
+                <h2>What do you want to do?</h2>
+                <p class="subtitle">Describe your task in plain English, and we'll help you create a powerful AI prompt</p>
 
                 <div class="form-group">
-                    <label for="promptType">Prompt Type</label>
-                    <select id="promptType" onchange="updateFields()">
-                        <option value="general">General Query</option>
-                        <option value="creative">Creative Writing</option>
-                        <option value="code">Code Generation</option>
-                        <option value="analysis">Analysis & Research</option>
-                        <option value="brainstorm">Brainstorming</option>
-                        <option value="learning">Learning & Explanation</option>
-                        <option value="editing">Editing & Refinement</option>
-                    </select>
+                    <textarea 
+                        id="userInput" 
+                        rows="6" 
+                        placeholder="e.g., Write a blog post about sustainable living for millennials, make it engaging and include practical tips"
+                        autofocus
+                    ></textarea>
                 </div>
 
-                <div class="form-group">
-                    <label for="mainGoal">What do you want to accomplish?</label>
-                    <textarea id="mainGoal" rows="3" placeholder="e.g., Create a marketing email for a new product launch"></textarea>
-                </div>
-
-                <div class="form-group">
-                    <label for="context">Context & Background</label>
-                    <textarea id="context" rows="3" placeholder="Provide any relevant background information, industry, audience, etc."></textarea>
-                </div>
-
-                <div class="form-group">
-                    <label for="requirements">Specific Requirements</label>
-                    <textarea id="requirements" rows="3" placeholder="List any must-haves: format, length, tone, style, constraints"></textarea>
-                </div>
-
-                <div class="form-group">
-                    <label for="outputFormat">Desired Output Format</label>
-                    <input type="text" id="outputFormat" placeholder="e.g., bullet points, essay, code with comments, step-by-step guide">
-                </div>
-
-                <div class="form-group">
-                    <label for="tone">Tone & Style</label>
-                    <select id="tone">
-                        <option value="">Select tone...</option>
-                        <option value="professional">Professional</option>
-                        <option value="casual">Casual & Friendly</option>
-                        <option value="technical">Technical</option>
-                        <option value="creative">Creative & Engaging</option>
-                        <option value="formal">Formal & Academic</option>
-                        <option value="concise">Concise & Direct</option>
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="examples">Examples (optional)</label>
-                    <textarea id="examples" rows="2" placeholder="Provide any examples of what you're looking for"></textarea>
-                </div>
-
-                <div class="form-group">
-                    <label for="avoid">What to Avoid (optional)</label>
-                    <textarea id="avoid" rows="2" placeholder="Any things to exclude or avoid in the response"></textarea>
-                </div>
-
-                <button class="btn-primary" onclick="generatePrompt()">Generate Prompt</button>
+                <button class="btn-primary" onclick="generatePrompt()">✨ Generate Prompt</button>
             </section>
 
             <section class="output-section" id="outputSection" style="display: none;">
@@ -83,60 +37,29 @@
                 </div>
                 <div class="button-group">
                     <button class="btn-secondary" onclick="copyPrompt()">📋 Copy to Clipboard</button>
+                    <button class="btn-secondary" onclick="showSaveDialog()">💾 Save Prompt</button>
                     <button class="btn-secondary" onclick="resetForm()">🔄 Create Another</button>
                 </div>
                 <div id="copyFeedback" class="copy-feedback"></div>
-            </section>
-
-            <section class="tips-section">
-                <h2>💡 Tips for Better Prompts</h2>
-                <div class="tips-grid">
-                    <div class="tip-card">
-                        <h3>Be Specific</h3>
-                        <p>The more details you provide, the better the AI can understand your needs.</p>
+                
+                <!-- Save Dialog -->
+                <div id="saveDialog" class="save-dialog" style="display: none;">
+                    <h3>Save Prompt</h3>
+                    <div class="form-group">
+                        <label for="promptName">Prompt Name</label>
+                        <input type="text" id="promptName" placeholder="e.g., Blog Post Generator" maxlength="50">
                     </div>
-                    <div class="tip-card">
-                        <h3>Provide Context</h3>
-                        <p>Background information helps the AI tailor its response to your situation.</p>
-                    </div>
-                    <div class="tip-card">
-                        <h3>Define Format</h3>
-                        <p>Specify how you want the output structured for best results.</p>
-                    </div>
-                    <div class="tip-card">
-                        <h3>Use Examples</h3>
-                        <p>Show the AI what good looks like with examples of desired output.</p>
-                    </div>
-                    <div class="tip-card">
-                        <h3>Set Constraints</h3>
-                        <p>Mention any limitations like length, complexity, or things to avoid.</p>
-                    </div>
-                    <div class="tip-card">
-                        <h3>Iterate</h3>
-                        <p>Don't hesitate to refine and adjust prompts based on the results you get.</p>
+                    <div class="button-group">
+                        <button class="btn-primary" onclick="savePrompt()">💾 Save</button>
+                        <button class="btn-secondary" onclick="hideSaveDialog()">Cancel</button>
                     </div>
                 </div>
             </section>
 
-            <section class="examples-section">
-                <h2>📚 Example Use Cases</h2>
-                <div class="examples-grid">
-                    <div class="example-card">
-                        <h3>Content Creation</h3>
-                        <p>Blog posts, social media content, marketing copy, product descriptions</p>
-                    </div>
-                    <div class="example-card">
-                        <h3>Code Development</h3>
-                        <p>Functions, debugging, code reviews, architecture design, documentation</p>
-                    </div>
-                    <div class="example-card">
-                        <h3>Learning</h3>
-                        <p>Concept explanations, tutorials, study guides, practice questions</p>
-                    </div>
-                    <div class="example-card">
-                        <h3>Business</h3>
-                        <p>Reports, presentations, emails, proposals, strategic planning</p>
-                    </div>
+            <section class="saved-prompts-section" id="savedPromptsSection">
+                <h2>📚 Saved Prompts</h2>
+                <div id="savedPromptsList" class="saved-prompts-list">
+                    <p class="empty-state" id="emptyState">No saved prompts yet. Generate and save your first prompt to get started!</p>
                 </div>
             </section>
         </main>
