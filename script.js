@@ -1,5 +1,5 @@
 // Prompt generation logic
-function generatePrompt() {
+async function generatePrompt() {
     const promptType = document.getElementById('promptType').value;
     const mainGoal = document.getElementById('mainGoal').value.trim();
     const context = document.getElementById('context').value.trim();
@@ -8,6 +8,7 @@ function generatePrompt() {
     const tone = document.getElementById('tone').value;
     const examples = document.getElementById('examples').value.trim();
     const avoid = document.getElementById('avoid').value.trim();
+    const apiKey = document.getElementById('apiKey').value.trim();
 
     // Validation
     if (!mainGoal) {
@@ -15,25 +16,106 @@ function generatePrompt() {
         return;
     }
 
-    // Build the prompt based on type
-    let generatedPrompt = buildPrompt({
-        promptType,
-        mainGoal,
-        context,
-        requirements,
-        outputFormat,
-        tone,
-        examples,
-        avoid
-    });
+    const btn = document.querySelector('.btn-primary');
+    const originalBtnText = btn.textContent;
+    btn.disabled = true;
 
-    // Display the generated prompt
-    document.getElementById('generatedPrompt').textContent = generatedPrompt;
-    document.getElementById('outputSection').style.display = 'block';
-    document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' });
+    try {
+        let result = "";
+
+        if (apiKey) {
+            btn.innerHTML = '<span class="loading-spinner"></span> Thinking...';
+            // AI Mode
+            result = await generateWithAI(apiKey, {
+                promptType,
+                mainGoal,
+                context,
+                requirements,
+                outputFormat,
+                tone,
+                examples,
+                avoid
+            });
+        } else {
+            // Template Mode
+            result = buildPrompt({
+                promptType,
+                mainGoal,
+                context,
+                requirements,
+                outputFormat,
+                tone,
+                examples,
+                avoid
+            });
+        }
+
+        // Display the generated prompt
+        document.getElementById('generatedPrompt').textContent = result;
+        document.getElementById('outputSection').style.display = 'block';
+        document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' });
+
+    } catch (error) {
+        alert("Error generating prompt: " + error.message + "\n\nFalling back to template mode might happen if API limits are reached or CORS blocks the request.");
+        // Fallback or just stop
+    } finally {
+        btn.disabled = false;
+        btn.textContent = originalBtnText;
+    }
+}
+
+async function generateWithAI(apiKey, data) {
+    const systemPrompt = "You are an expert Prompt Engineer. Your goal is to take a basic user request and transform it into a highly detailed, professional prompt optimized for LLMs (like Claude, GPT-4). The user wants 'original thinking', so do not just fill in a template. Analyze the request, identify missing constraints, and generate a comprehensive prompt that would yield the best possible result from an AI.";
+    
+    const userMessage = `
+    I need a detailed prompt for the following task:
+    
+    TYPE: ${data.promptType}
+    GOAL: ${data.mainGoal}
+    CONTEXT: ${data.context}
+    REQUIREMENTS: ${data.requirements}
+    TONE: ${data.tone}
+    AVOID: ${data.avoid}
+    OUTPUT FORMAT: ${data.outputFormat}
+    EXAMPLES: ${data.examples}
+
+    Please generate a robust, structured prompt that I can copy and paste into an AI model.
+    `;
+
+    try {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json',
+                'dangerously-allow-browser': 'true'
+            },
+            body: JSON.stringify({
+                model: "claude-3-sonnet-20240229",
+                max_tokens: 2000,
+                system: systemPrompt,
+                messages: [
+                    { role: "user", content: userMessage }
+                ]
+            })
+        });
+
+        if (!response.ok) {
+            const errData = await response.json();
+            throw new Error(errData.error?.message || `API Error: ${response.status}`);
+        }
+
+        const responseData = await response.json();
+        return responseData.content[0].text;
+    } catch (error) {
+        console.error("AI Generation failed:", error);
+        throw error;
+    }
 }
 
 function buildPrompt(data) {
+    // Legacy Template Mode (Fallback)
     const roles = {
         general: "You are an expert AI assistant capable of handling a wide range of tasks with precision and clarity.",
         creative: "You are a visionary creative writer and storyteller, known for crafting engaging narratives and original content.",
@@ -206,7 +288,22 @@ function updateFields() {
     }
 }
 
-// Initialize fields on load
+function useDemoKey(event) {
+    event.preventDefault();
+    document.getElementById('apiKey').value = ''; // Clear it to force template mode
+    alert("Demo Mode Active: The app will now use the built-in logic template instead of the API.");
+}
+
+// Toggle Settings
 document.addEventListener('DOMContentLoaded', function() {
+    const toggleBtn = document.getElementById('toggleSettings');
+    const panel = document.getElementById('settingsPanel');
+    
+    if (toggleBtn && panel) {
+        toggleBtn.addEventListener('click', () => {
+            panel.classList.toggle('hidden');
+        });
+    }
+
     updateFields();
 });
