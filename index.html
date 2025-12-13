@@ -9,6 +9,16 @@
 <body>
     <div class="container">
         <header>
+            <div class="api-config">
+                <button id="toggleSettings" class="btn-text">⚙️ Configure AI Model</button>
+                <div id="settingsPanel" class="settings-panel hidden">
+                    <div class="form-group">
+                        <label for="apiKey">Anthropic API Key (Required for AI Thinking)</label>
+                        <input type="password" id="apiKey" placeholder="sk-ant-...">
+                        <p class="help-text">Your key is stored locally in your browser only. <a href="#" onclick="useDemoKey(event)">Use Demo Mode (Template)</a> if you don't have a key.</p>
+                    </div>
+                </div>
+            </div>
             <h1>🎯 PromptVault</h1>
             <p class="tagline">Craft powerful AI prompts that get results</p>
         </header>
