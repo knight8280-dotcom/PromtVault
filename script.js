@@ -34,81 +34,97 @@ function generatePrompt() {
 }
 
 function buildPrompt(data) {
-    let prompt = '';
-
-    // Add type-specific introduction
-    const typeIntros = {
-        general: 'I need your help with the following:',
-        creative: 'I need you to help me create creative content:',
-        code: 'I need you to help me with code development:',
-        analysis: 'I need you to analyze and provide insights on:',
-        brainstorm: 'I need you to help me brainstorm ideas for:',
-        learning: 'I need you to help me understand and learn about:',
-        editing: 'I need you to help me edit and refine:'
+    const roles = {
+        general: "You are an expert AI assistant capable of handling a wide range of tasks with precision and clarity.",
+        creative: "You are a visionary creative writer and storyteller, known for crafting engaging narratives and original content.",
+        code: "You are a Senior Software Engineer with deep expertise in clean code, architecture, and performance optimization.",
+        analysis: "You are a Lead Data Analyst and Strategist, skilled in breaking down complex information into actionable insights.",
+        brainstorm: "You are an Innovation Consultant and Ideation Expert, specialized in generating diverse and novel solutions.",
+        learning: "You are an Expert Educator and Tutor, able to explain complex concepts in simple, digestible terms.",
+        editing: "You are a Senior Editor and Proofreader with an eagle eye for detail, grammar, and style flow."
     };
 
-    prompt += typeIntros[data.promptType] || typeIntros.general;
-    prompt += '\n\n';
+    const instructions = {
+        general: "Your task is to provide a comprehensive answer to the following request.",
+        creative: "Your task is to write creative content that meets the following criteria.",
+        code: "Your task is to write, refactor, or explain code as requested, following industry best practices.",
+        analysis: "Your task is to analyze the provided topic or data and deliver a structured assessment.",
+        brainstorm: "Your task is to generate a wide variety of ideas and options for the specific challenge.",
+        learning: "Your task is to teach and explain the subject matter effectively to the learner.",
+        editing: "Your task is to review, edit, and improve the provided text."
+    };
 
-    // Main Goal
-    prompt += `TASK: ${data.mainGoal}\n\n`;
+    let prompt = "";
 
-    // Context
+    // 1. Role & Persona
+    prompt += `### ROLE\n${roles[data.promptType] || roles.general}\n\n`;
+
+    // 2. Core Task
+    prompt += `### TASK\n${instructions[data.promptType] || instructions.general}\n`;
+    prompt += `Specific Goal: ${data.mainGoal}\n\n`;
+
+    // 3. Context & Background
     if (data.context) {
-        prompt += `CONTEXT:\n${data.context}\n\n`;
+        prompt += `### CONTEXT\n${data.context}\n\n`;
     }
 
-    // Requirements
-    if (data.requirements) {
-        prompt += `REQUIREMENTS:\n${data.requirements}\n\n`;
+    // 4. Requirements & Constraints
+    if (data.requirements || data.avoid || data.tone) {
+        prompt += `### REQUIREMENTS & CONSTRAINTS\n`;
+        if (data.requirements) prompt += `- Must adhere to: ${data.requirements}\n`;
+        if (data.tone) prompt += `- Tone/Style: ${getToneDescription(data.tone)}\n`;
+        if (data.avoid) prompt += `- Strictly Avoid: ${data.avoid}\n`;
+        prompt += "\n";
     }
 
-    // Output Format
-    if (data.outputFormat) {
-        prompt += `OUTPUT FORMAT: ${data.outputFormat}\n\n`;
-    }
-
-    // Tone
-    if (data.tone) {
-        const toneDescriptions = {
-            professional: 'Professional and business-appropriate',
-            casual: 'Casual, friendly, and conversational',
-            technical: 'Technical and precise with proper terminology',
-            creative: 'Creative, engaging, and imaginative',
-            formal: 'Formal and academic',
-            concise: 'Concise and to-the-point'
-        };
-        prompt += `TONE: ${toneDescriptions[data.tone]}\n\n`;
-    }
-
-    // Examples
+    // 5. Examples (Few-Shot)
     if (data.examples) {
-        prompt += `EXAMPLES OF WHAT I'M LOOKING FOR:\n${data.examples}\n\n`;
+        prompt += `### REFERENCE EXAMPLES\nUse these examples as a guide for the expected output style/format:\n${data.examples}\n\n`;
     }
 
-    // Avoid
-    if (data.avoid) {
-        prompt += `PLEASE AVOID:\n${data.avoid}\n\n`;
+    // 6. Format
+    if (data.outputFormat) {
+        prompt += `### OUTPUT FORMAT\n${data.outputFormat}\n\n`;
     }
 
-    // Add type-specific guidance
-    const typeGuidance = {
-        creative: 'Please be creative and original in your response.',
-        code: 'Please include clear comments and follow best practices. Explain your approach.',
-        analysis: 'Please provide a thorough analysis with supporting evidence and clear reasoning.',
-        brainstorm: 'Please provide multiple diverse ideas with brief explanations for each.',
-        learning: 'Please explain concepts clearly with examples, as if teaching someone new to the topic.',
-        editing: 'Please provide specific suggestions for improvement and explain why each change would be beneficial.'
-    };
+    // 7. Advanced Guidelines (The "Detailed" part)
+    prompt += `### GUIDELINES\n`;
+    prompt += getGuidelines(data.promptType);
+    prompt += "\n\n";
 
-    if (typeGuidance[data.promptType]) {
-        prompt += `${typeGuidance[data.promptType]}\n\n`;
-    }
-
-    // Final touch
-    prompt += 'Please provide a comprehensive and well-structured response.';
+    // 8. Chain of Thought / Final Instruction
+    prompt += `### INSTRUCTIONS\n`;
+    prompt += "1. Take a deep breath and analyze the request step-by-step.\n";
+    prompt += "2. Identify any missing information or ambiguities (make reasonable assumptions if necessary, but state them).\n";
+    prompt += "3. Draft the response according to the specified format and constraints.\n";
+    prompt += "4. Review your response to ensure it directly answers the core goal.";
 
     return prompt;
+}
+
+function getToneDescription(toneKey) {
+    const toneDescriptions = {
+        professional: 'Professional, objective, and business-appropriate',
+        casual: 'Casual, friendly, and conversational',
+        technical: 'Technical, precise, and using industry-standard terminology',
+        creative: 'Creative, expressive, and engaging',
+        formal: 'Formal, academic, and structured',
+        concise: 'Concise, direct, and to-the-point'
+    };
+    return toneDescriptions[toneKey] || toneKey;
+}
+
+function getGuidelines(type) {
+    const guidelines = {
+        general: "- Ensure accuracy and relevance.\n- Organize information logically.\n- Address all parts of the user's query.",
+        creative: "- Use vivid imagery and sensory details.\n- Focus on 'show, don't tell'.\n- Ensure a consistent voice and perspective.",
+        code: "- Write clean, modular, and well-documented code.\n- Handle edge cases and errors gracefully.\n- Explain the logic behind your solution.\n- Suggest optimizations where possible.",
+        analysis: "- Support claims with reasoning or evidence.\n- Consider multiple perspectives or counter-arguments.\n- Distinguish between fact and opinion.",
+        brainstorm: "- Prioritize quantity and diversity of ideas first.\n- Encourage out-of-the-box thinking.\n- Briefly explain the 'why' behind each idea.",
+        learning: "- Use analogies and examples to clarify abstract concepts.\n- Check for understanding (rhetorically).\n- Structure the explanation from simple to complex.",
+        editing: "- Maintain the author's original voice where possible.\n- Explain significant changes.\n- Focus on clarity, flow, and grammar."
+    };
+    return guidelines[type] || guidelines.general;
 }
 
 function copyPrompt() {
@@ -142,23 +158,14 @@ function resetForm() {
 
     // Hide output section
     document.getElementById('outputSection').style.display = 'none';
+    updateFields(); // Reset placeholders
 
     // Scroll to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 function updateFields() {
-    // This function can be extended to show/hide fields based on prompt type
-    // For now, it's a placeholder for future enhancements
-    const promptType = document.getElementById('promptType').value;
-
-    // You can add logic here to show different fields or provide suggestions
-    // based on the selected prompt type
-}
-
-// Add some helpful placeholder updates based on prompt type
-document.getElementById('promptType').addEventListener('change', function() {
-    const type = this.value;
+    const type = document.getElementById('promptType').value;
     const mainGoal = document.getElementById('mainGoal');
     const context = document.getElementById('context');
 
@@ -197,4 +204,9 @@ document.getElementById('promptType').addEventListener('change', function() {
         mainGoal.placeholder = placeholders[type].goal;
         context.placeholder = placeholders[type].context;
     }
+}
+
+// Initialize fields on load
+document.addEventListener('DOMContentLoaded', function() {
+    updateFields();
 });
