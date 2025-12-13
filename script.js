@@ -23,31 +23,36 @@ async function generatePrompt() {
     try {
         let result = "";
 
+        // Strategy: 
+        // 1. If user provides a key in the UI, use it (Client-side Call).
+        // 2. If NO key is in UI, try to call our Backend Proxy (Server-side Key).
+        // 3. If Backend fails, fall back to Template Mode.
+
+        btn.innerHTML = '<span class="loading-spinner"></span> Thinking...';
+
         if (apiKey) {
-            btn.innerHTML = '<span class="loading-spinner"></span> Thinking...';
-            // AI Mode
-            result = await generateWithAI(apiKey, {
-                promptType,
-                mainGoal,
-                context,
-                requirements,
-                outputFormat,
-                tone,
-                examples,
-                avoid
+            // User provided their own key in the UI -> Client Side Call
+            result = await generateWithAnthropicDirect(apiKey, {
+                promptType, mainGoal, context, requirements, outputFormat, tone, examples, avoid
             });
         } else {
-            // Template Mode
-            result = buildPrompt({
-                promptType,
-                mainGoal,
-                context,
-                requirements,
-                outputFormat,
-                tone,
-                examples,
-                avoid
-            });
+            // No UI key -> Try Backend Proxy
+            try {
+                result = await generateWithBackendProxy({
+                    promptType, mainGoal, context, requirements, outputFormat, tone, examples, avoid
+                });
+            } catch (proxyError) {
+                console.warn("Backend proxy failed or not available, falling back to template:", proxyError);
+                // Fallback to Template
+                result = buildPrompt({
+                    promptType, mainGoal, context, requirements, outputFormat, tone, examples, avoid
+                });
+                
+                // Only alert if it's not a "network error" which is expected on static hosting
+                if (!proxyError.message.includes('Failed to fetch')) {
+                   // alert("Note: Using template mode (Backend API unavailable).");
+                }
+            }
         }
 
         // Display the generated prompt
@@ -56,18 +61,71 @@ async function generatePrompt() {
         document.getElementById('outputSection').scrollIntoView({ behavior: 'smooth' });
 
     } catch (error) {
-        alert("Error generating prompt: " + error.message + "\n\nFalling back to template mode might happen if API limits are reached or CORS blocks the request.");
-        // Fallback or just stop
+        alert("Error generating prompt: " + error.message);
     } finally {
         btn.disabled = false;
         btn.textContent = originalBtnText;
     }
 }
 
-async function generateWithAI(apiKey, data) {
-    const systemPrompt = "You are an expert Prompt Engineer. Your goal is to take a basic user request and transform it into a highly detailed, professional prompt optimized for LLMs (like Claude, GPT-4). The user wants 'original thinking', so do not just fill in a template. Analyze the request, identify missing constraints, and generate a comprehensive prompt that would yield the best possible result from an AI.";
-    
-    const userMessage = `
+async function generateWithBackendProxy(data) {
+    const response = await fetch('/api/generate', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            model: "claude-3-sonnet-20240229",
+            max_tokens: 2000,
+            system: getSystemPrompt(),
+            messages: [
+                { role: "user", content: getUserMessage(data) }
+            ]
+        })
+    });
+
+    if (!response.ok) {
+        throw new Error(`Server returned ${response.status}`);
+    }
+
+    const responseData = await response.json();
+    return responseData.content[0].text;
+}
+
+async function generateWithAnthropicDirect(apiKey, data) {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'content-type': 'application/json',
+            'dangerously-allow-browser': 'true'
+        },
+        body: JSON.stringify({
+            model: "claude-3-sonnet-20240229",
+            max_tokens: 2000,
+            system: getSystemPrompt(),
+            messages: [
+                { role: "user", content: getUserMessage(data) }
+            ]
+        })
+    });
+
+    if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error?.message || `API Error: ${response.status}`);
+    }
+
+    const responseData = await response.json();
+    return responseData.content[0].text;
+}
+
+function getSystemPrompt() {
+    return "You are an expert Prompt Engineer. Your goal is to take a basic user request and transform it into a highly detailed, professional prompt optimized for LLMs (like Claude, GPT-4). The user wants 'original thinking', so do not just fill in a template. Analyze the request, identify missing constraints, and generate a comprehensive prompt that would yield the best possible result from an AI.";
+}
+
+function getUserMessage(data) {
+    return `
     I need a detailed prompt for the following task:
     
     TYPE: ${data.promptType}
@@ -81,37 +139,6 @@ async function generateWithAI(apiKey, data) {
 
     Please generate a robust, structured prompt that I can copy and paste into an AI model.
     `;
-
-    try {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-            method: 'POST',
-            headers: {
-                'x-api-key': apiKey,
-                'anthropic-version': '2023-06-01',
-                'content-type': 'application/json',
-                'dangerously-allow-browser': 'true'
-            },
-            body: JSON.stringify({
-                model: "claude-3-sonnet-20240229",
-                max_tokens: 2000,
-                system: systemPrompt,
-                messages: [
-                    { role: "user", content: userMessage }
-                ]
-            })
-        });
-
-        if (!response.ok) {
-            const errData = await response.json();
-            throw new Error(errData.error?.message || `API Error: ${response.status}`);
-        }
-
-        const responseData = await response.json();
-        return responseData.content[0].text;
-    } catch (error) {
-        console.error("AI Generation failed:", error);
-        throw error;
-    }
 }
 
 function buildPrompt(data) {
