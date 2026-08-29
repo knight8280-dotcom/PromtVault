@@ -94,6 +94,14 @@ class ExecutionConfig:
     poll_interval: int = 60
     # Refuse to place an order smaller than this notional.
     min_order_notional: float = 10.0
+    # Named fee tier from tradingbot.execution.FEE_TIERS. When set, it overrides
+    # fee_rate and slippage_pct with the modelled cost of your actual execution.
+    fee_tier: str | None = None
+    # Rest orders on the book instead of crossing the spread. Much cheaper, but
+    # only sound when a missed fill costs less than the fee saved.
+    prefer_maker: bool = False
+    # Share of resting orders expected to fill before the signal goes stale.
+    maker_fill_rate: float = 0.7
     # Live trading additionally requires this to be true. Two locks, on purpose.
     confirm_live: bool = False
 
@@ -106,6 +114,35 @@ class ExecutionConfig:
             raise ConfigError("execution.fee_rate and slippage_pct cannot be negative")
         if self.poll_interval < 1:
             raise ConfigError("execution.poll_interval must be at least 1 second")
+        if not 0 <= self.maker_fill_rate <= 1:
+            raise ConfigError("execution.maker_fill_rate must be between 0 and 1")
+        if self.fee_tier is not None:
+            from .execution import FEE_TIERS
+
+            if self.fee_tier not in FEE_TIERS:
+                raise ConfigError(
+                    f"unknown execution.fee_tier {self.fee_tier!r}; "
+                    f"known: {', '.join(sorted(FEE_TIERS))}"
+                )
+
+    def execution_model(self):
+        """The modelled cost of this execution setup, or None if not configured."""
+        if self.fee_tier is None:
+            return None
+        from .execution import ExecutionModel, get_tier
+
+        return ExecutionModel(
+            get_tier(self.fee_tier),
+            prefer_maker=self.prefer_maker,
+            maker_fill_rate=self.maker_fill_rate,
+        )
+
+    def apply_fee_tier(self) -> None:
+        """Derive fee_rate and slippage_pct from the fee tier, when one is set."""
+        model = self.execution_model()
+        if model is not None:
+            self.fee_rate = model.effective_fee()
+            self.slippage_pct = model.effective_slippage()
 
 
 @dataclass
@@ -138,6 +175,9 @@ class Config:
             )
         self.risk.validate()
         self.execution.validate()
+        # A configured tier is the source of truth for costs, so resolve it once
+        # here rather than leaving two contradictory numbers in the config.
+        self.execution.apply_fee_tier()
 
     @property
     def is_live(self) -> bool:

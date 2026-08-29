@@ -48,6 +48,12 @@ execution:
   slippage_pct: 0.0005            # modelled market-order slippage
   poll_interval: 60               # seconds between cycles
   min_order_notional: 10.0
+
+  # Execution economics. Setting a fee tier overrides fee_rate and slippage_pct
+  # above with the modelled cost of how you actually trade — see `cbot execution`.
+  # fee_tier: binance_perp        # binance, binance_bnb, bybit_perp, okx_perp, coinbase, kraken
+  # prefer_maker: true            # rest on the book instead of crossing the spread
+  # maker_fill_rate: 0.8          # share of resting orders expected to fill
   # Live trading also requires --i-understand-the-risk on the command line.
   confirm_live: false
 

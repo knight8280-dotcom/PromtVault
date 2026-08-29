@@ -8,6 +8,9 @@ Subcommands:
   fetch     download and cache OHLCV history
   serve     run the CBot web dashboard
   research  review a token contract address before you trade it
+  carry     scan perpetual funding for market-neutral carry
+  execution what your fees cost, and the edge needed to beat them
+  regime    which market regimes an instrument spends its time in
   optimize  grid-search strategy parameters over historical data
   validate  stress-test a result: benchmark, luck, random baseline, costs
   walkforward  optimise on one window and test on the next unseen one
@@ -792,6 +795,105 @@ def cmd_walkforward(args) -> int:
     return 0
 
 
+def cmd_carry(args) -> int:
+    """Scan perpetual funding for carry that survives its own costs."""
+    config = _resolve_config(args)
+    from .carry import CarryCosts, CarryScanner, FundingSourceError, format_scan
+    from .execution import ExecutionModel, get_tier
+
+    spot = get_tier(args.spot_tier)
+    perp = get_tier(args.perp_tier)
+    spot_model = ExecutionModel(spot, prefer_maker=args.maker, maker_fill_rate=args.fill_rate)
+    perp_model = ExecutionModel(perp, prefer_maker=args.maker, maker_fill_rate=args.fill_rate)
+    costs = CarryCosts(
+        spot_fee=spot_model.effective_fee(),
+        perp_fee=perp_model.effective_fee(),
+        slippage_pct=max(spot_model.effective_slippage(), perp_model.effective_slippage()),
+        borrow_apr=args.borrow_apr,
+    )
+
+    try:
+        from .carry import CcxtFundingSource
+
+        source = CcxtFundingSource(args.venue)
+    except FundingSourceError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        scanner = CarryScanner(source, costs, history_limit=args.history)
+        result = scanner.scan(args.symbols) if args.symbols else scanner.scan_all(limit=args.limit)
+    finally:
+        source.close()
+
+    print(format_scan(result, costs))
+    if args.json:
+        Path(args.json).write_text(json.dumps(result.as_dict(), indent=2, default=str))
+        print(f"  Wrote {args.json}\n")
+    return 0 if result.opportunities else 1
+
+
+def cmd_execution(args) -> int:
+    """Show what execution actually costs, and the edge needed to overcome it."""
+    from .execution import FEE_TIERS, compare_execution, get_tier
+
+    if args.tier:
+        tiers = [get_tier(args.tier)]
+    else:
+        tiers = [FEE_TIERS[name] for name in sorted(FEE_TIERS) if name != "zero"]
+
+    print()
+    print("  Execution cost, and the gross move a trade must capture to break even")
+    print(f"  {'=' * 74}")
+    for tier in tiers:
+        print()
+        print(f"  {tier.name}")
+        print(f"    maker {tier.maker:.4%}   taker {tier.taker:.4%}")
+        print(f"    {'mode':<10}{'fill rate':>11}{'eff. fee':>11}{'round trip':>13}{'breakeven move':>17}")
+        for row in compare_execution(tier):
+            label = row["mode"] if row["mode"] == "taker" else f"maker"
+            print(f"    {label:<10}{row['fill_rate']:>10.0%}{row['effective_fee']:>11.4%}"
+                  f"{row['round_trip']:>13.4%}{row['breakeven_pct']:>16.3f}%")
+    print()
+    print("  A strategy whose average winner is smaller than the breakeven move cannot")
+    print("  be profitable, however often it is right. Check yours against this table.")
+    print()
+    return 0
+
+
+def cmd_regime(args) -> int:
+    """Report which regimes an instrument spends its time in."""
+    config = _resolve_config(args)
+    from .regime import RegimeDetector, regime_summary
+
+    detector = RegimeDetector(period=args.period)
+    for symbol in config.symbols:
+        try:
+            candles = _get_candles(args, config, symbol)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+
+        summary = regime_summary(candles, detector)
+        current = detector.detect(candles)
+
+        print()
+        print(f"  {symbol} {config.timeframe} — {len(candles)} bars")
+        print(f"  {'=' * 62}")
+        for name, share in sorted(summary.items(), key=lambda kv: -kv[1]):
+            bar = "#" * int(share * 40)
+            print(f"    {name:<12}{share:>6.0%}  {bar}")
+        print()
+        print(f"  Now: {current.regime.value} — {current.reason}")
+        print()
+        trending = summary.get("trending", 0) + summary.get("volatile", 0)
+        print(f"  Trend strategies have a premise {trending:.0%} of the time;")
+        print(f"  mean reversion has one {1 - trending:.0%} of the time. Running either")
+        print("  outside its regime pays fees for nothing.")
+        print()
+    return 0
+
+
 class _SyntheticSource:
     """Feeds the paper engine generated candles, for offline smoke tests."""
 
@@ -875,6 +977,31 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--iterations", type=int, help="stop after N cycles")
     p.add_argument("--poll-interval", type=int, help="seconds between cycles (default: from config)")
     p.set_defaults(func=cmd_live)
+
+    p = sub.add_parser("carry", help="scan perpetual funding for market-neutral carry")
+    p.add_argument("--venue", default="binance", help="perpetual venue to scan")
+    p.add_argument("--symbols", nargs="*", help="specific perp symbols (default: scan the venue)")
+    p.add_argument("--limit", type=int, default=25, help="how many perps to scan")
+    p.add_argument("--history", type=int, default=30, help="funding intervals of history to weigh")
+    p.add_argument("--spot-tier", default="binance", help="fee tier for the spot leg")
+    p.add_argument("--perp-tier", default="binance_perp", help="fee tier for the perp leg")
+    p.add_argument("--maker", action="store_true", help="assume maker execution on both legs")
+    p.add_argument("--fill-rate", type=float, default=0.8, help="assumed maker fill rate")
+    p.add_argument("--borrow-apr", type=float, default=0.0, help="cost of margin, as a fraction")
+    p.add_argument("--json", help="write the scan to this JSON file")
+    p.add_argument("-c", "--config", help="path to a YAML config file")
+    p.add_argument("--log-level", default="WARNING", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    p.set_defaults(func=cmd_carry)
+
+    p = sub.add_parser("execution", help="what your fees cost, and the edge needed to beat them")
+    p.add_argument("--tier", help="a single fee tier to show")
+    p.add_argument("--log-level", default="WARNING", choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    p.set_defaults(func=cmd_execution, config=None)
+
+    p = sub.add_parser("regime", help="which market regimes an instrument spends its time in")
+    common(p, data=True)
+    p.add_argument("--period", type=int, default=30, help="bars in the efficiency window")
+    p.set_defaults(func=cmd_regime)
 
     p = sub.add_parser("validate", help="stress-test a backtest result for luck and costs")
     common(p, data=True)

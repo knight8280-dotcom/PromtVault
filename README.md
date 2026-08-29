@@ -305,6 +305,9 @@ tradingbot/
   engine.py         live/paper trading loop
   metrics.py        Sharpe, Sortino, drawdown, profit factor, buy-and-hold
   validation.py     walk-forward, bootstrap, random baseline, cost sweeps
+  execution.py      fee tiers, maker vs taker economics
+  regime.py         regime detection and strategy gating
+  carry/            perpetual funding carry: sources, scanner, scoring
   state.py          crash-safe state persistence
   notifier.py       log and webhook notifications
   strategies/       sma_cross, rsi_reversion, breakout
@@ -313,7 +316,7 @@ tradingbot/
   research/         token contract due diligence (chain sources + heuristics)
   web/              dashboard backend (standard library HTTP server)
 web/                dashboard frontend (no build step, no dependencies)
-tests/              353 tests
+tests/              428 tests
 ```
 
 ## Tests
@@ -389,6 +392,118 @@ parameter the optimiser rechooses every window is being fitted to noise.
 Not a profitable strategy. It buys you the ability to tell the difference between
 one that works and one that got lucky — and to find out on your laptop instead of
 on an exchange. Most strategies fail these checks. That is the tooling working.
+
+
+## Looking for an actual edge
+
+Price-prediction strategies on liquid crypto do not work — the search below is
+the evidence, not an opinion. These three tools exist because the interesting
+question is not "which moving average" but "where does a real edge live".
+
+### The search that motivated all of this
+
+197 parameter configurations across all three strategies, run on **real hourly
+data** for BTC, ETH, SOL and LINK:
+
+```
+Buy and hold:  BTC +6.12%   ETH +22.58%   SOL +29.21%   LINK +26.42%
+
+Configs beating buy-and-hold on all four assets:   0
+Configs with a positive mean excess return:        0 / 197
+Best performer:                                    -16.96% vs holding
+```
+
+Not one. This is the expected result, and it is why the tools below focus on
+costs, regime and carry rather than on inventing a fourth crossover.
+
+### carry — a structural edge, not a forecast
+
+A perpetual swap has no expiry, so exchanges use a **funding payment** to tether
+it to spot. Hold long spot and short perp in equal size and you are flat on
+price while collecting that funding. It pays you for providing balance sheet
+rather than for predicting anything, which is why it is measurable in advance.
+
+```bash
+python -m tradingbot.cli carry --venue binance --maker
+python -m tradingbot.cli carry --symbols "BTC/USDT:USDT" "ETH/USDT:USDT" --json carry.json
+```
+
+The scanner is deliberately pessimistic. It ranks by carry **net of fees**,
+prefers the historical mean over the current print, and refuses to call anything
+viable that trips one of these:
+
+| Check | Why |
+|---|---|
+| Net of round-trip costs | 1bp funding looks like 11% APR and takes **16 days** just to pay for entering |
+| Breakeven under 72h | A carry you must hold for weeks is exposed to weeks of things going wrong |
+| Funding positive ≥70% of intervals | A high average driven by a few spikes is not bankable |
+| Volatility below its own mean | If funding swings more than it averages, the carry is unreliable |
+| No spot borrow required | Negative funding means shorting spot, which most retail accounts cannot do cheaply |
+
+**Carry is not free money.** Funding can flip while you hold. The perp leg can be
+liquidated in a fast move if margin is thin. And the whole position depends on the
+venue staying solvent — the trade that pays 15% a year loses 100% if the exchange
+does an FTX.
+
+### execution — the thing that was actually killing you
+
+`validate` kept returning the same verdict: profitable at zero fees, unprofitable
+at real ones. That is an execution problem, and it has a real fix.
+
+```bash
+python -m tradingbot.cli execution
+```
+
+```
+  binance USD-M futures VIP0
+    mode        fill rate   eff. fee   round trip   breakeven move
+    taker           100%    0.0500%      0.1400%           0.140%
+    maker            90%    0.0230%      0.0500%           0.050%
+```
+
+The last column is the gross move a trade must capture just to break even. **A
+strategy whose average winner is smaller than that number cannot be profitable,
+however often it is right.** On Coinbase taker fees it is 1.64%; on perp maker
+fees it is 0.04% — a 40x difference in the edge you need.
+
+Set it in config and every backtest uses your real costs:
+
+```yaml
+execution:
+  fee_tier: binance_perp    # binance, binance_bnb, bybit_perp, okx_perp, coinbase, kraken
+  prefer_maker: true
+  maker_fill_rate: 0.8      # honest: orders that do not fill are trades you did not make
+```
+
+### regime — knowing when your premise does not hold
+
+Trend following needs price to travel; mean reversion needs it to oscillate. Run
+either in the wrong regime and it bleeds fees on false starts.
+
+```bash
+python -m tradingbot.cli regime -c config/config.yaml
+```
+
+```
+  BTC/USD 1h — 2160 bars
+    choppy         64%  #########################
+    quiet          16%  ######
+    trending       14%  #####
+    volatile        7%  ##
+```
+
+Hourly crypto trends about 20% of the time. A crossover strategy has a premise for
+one bar in five and pays fees for the other four — which is most of the answer to
+why the search above found nothing.
+
+`RegimeGatedStrategy` wraps any strategy so it only *enters* when the regime suits
+it. Exits are never gated: a position opened in one regime must stay closable in
+another.
+
+**Tested honestly, gating did not rescue the bundled strategies** — it cut 90
+trades to 13 and made the result slightly worse, because over a rising 90-day
+window anything that reduces exposure loses to holding. The tool is sound; the
+premise it was gating was not.
 
 ## Contract research
 
