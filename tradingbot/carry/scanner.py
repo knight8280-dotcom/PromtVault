@@ -55,11 +55,13 @@ class CarryScanner:
         *,
         history_limit: int = 30,
         min_intervals: int = 6,
+        max_breakeven_hours: float = 120.0,
     ) -> None:
         self.source = source
         self.costs = costs or CarryCosts()
         self.history_limit = history_limit
         self.min_intervals = min_intervals
+        self.max_breakeven_hours = max_breakeven_hours
 
     def scan(self, symbols: list[str]) -> ScanResult:
         """Score each symbol. One failure never stops the scan."""
@@ -88,6 +90,7 @@ class CarryScanner:
                     funding=current,
                     history=history,
                     costs=self.costs,
+                    max_breakeven_hours=self.max_breakeven_hours,
                 )
             )
 

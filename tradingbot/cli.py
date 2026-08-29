@@ -821,7 +821,8 @@ def cmd_carry(args) -> int:
         return 1
 
     try:
-        scanner = CarryScanner(source, costs, history_limit=args.history)
+        scanner = CarryScanner(source, costs, history_limit=args.history,
+                               max_breakeven_hours=args.max_breakeven_days * 24)
         result = scanner.scan(args.symbols) if args.symbols else scanner.scan_all(limit=args.limit)
     finally:
         source.close()
@@ -988,6 +989,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--maker", action="store_true", help="assume maker execution on both legs")
     p.add_argument("--fill-rate", type=float, default=0.8, help="assumed maker fill rate")
     p.add_argument("--borrow-apr", type=float, default=0.0, help="cost of margin, as a fraction")
+    p.add_argument("--max-breakeven-days", type=float, default=5.0,
+                   help="reject carry that takes longer than this to cover its own fees")
     p.add_argument("--json", help="write the scan to this JSON file")
     p.add_argument("-c", "--config", help="path to a YAML config file")
     p.add_argument("--log-level", default="WARNING", choices=["DEBUG", "INFO", "WARNING", "ERROR"])

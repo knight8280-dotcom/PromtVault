@@ -316,7 +316,7 @@ tradingbot/
   research/         token contract due diligence (chain sources + heuristics)
   web/              dashboard backend (standard library HTTP server)
 web/                dashboard frontend (no build step, no dependencies)
-tests/              428 tests
+tests/              430 tests
 ```
 
 ## Tests
@@ -435,7 +435,7 @@ viable that trips one of these:
 | Check | Why |
 |---|---|
 | Net of round-trip costs | 1bp funding looks like 11% APR and takes **16 days** just to pay for entering |
-| Breakeven under 72h | A carry you must hold for weeks is exposed to weeks of things going wrong |
+| Breakeven inside your holding period | Set with `--max-breakeven-days` (default 5). At maker fees, 3bp funding is ~33% APR and breaks even in 3.2 days; 0.5bp takes 19 days and is rejected |
 | Funding positive ≥70% of intervals | A high average driven by a few spikes is not bankable |
 | Volatility below its own mean | If funding swings more than it averages, the carry is unreliable |
 | No spot borrow required | Negative funding means shorting spot, which most retail accounts cannot do cheaply |

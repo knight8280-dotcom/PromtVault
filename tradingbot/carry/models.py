@@ -131,6 +131,10 @@ class CarryOpportunity:
     costs: CarryCosts = field(default_factory=CarryCosts)
     spot_price: float | None = None
     liquidity_note: str = ""
+    # How long you are willing to wait to cover the round trip. Breakeven is only
+    # meaningful against an intended holding period: 3 days to cover fees is fine
+    # for a carry you will hold for weeks and fatal for one you will hold overnight.
+    max_breakeven_hours: float = 120.0
 
     @property
     def gross_annualized_pct(self) -> float:
@@ -200,9 +204,10 @@ class CarryOpportunity:
             )
 
         breakeven = self.breakeven_hours
-        if breakeven is not None and breakeven > 72:
+        if breakeven is not None and breakeven > self.max_breakeven_hours:
             out.append(
-                f"takes {breakeven:.0f}h ({breakeven / 24:.1f} days) just to cover fees"
+                f"takes {breakeven / 24:.1f} days just to cover fees, beyond the "
+                f"{self.max_breakeven_hours / 24:.1f}-day limit you set"
             )
 
         if self.history:
@@ -235,6 +240,7 @@ class CarryOpportunity:
             "gross_annualized_pct": self.gross_annualized_pct,
             "net_annualized_pct": self.net_annualized_pct,
             "breakeven_hours": self.breakeven_hours,
+            "max_breakeven_hours": self.max_breakeven_hours,
             "positive_share": self.history.positive_share if self.history else None,
             "intervals": self.history.intervals if self.history else 0,
             "viable": self.is_viable,

@@ -129,6 +129,32 @@ def test_a_slow_breakeven_is_flagged():
     assert not o.is_viable
 
 
+def test_the_breakeven_limit_is_relative_to_your_holding_period():
+    """3 days to cover fees is fine for a multi-week carry and fatal for an overnight one."""
+    cheap = CarryCosts(spot_fee=0.0002, perp_fee=0.0002, slippage_pct=0.0001)
+    common = dict(history=history([0.0003] * 20), costs=cheap)
+
+    patient = CarryOpportunity("BTC", "binance", rate(0.0003),
+                               max_breakeven_hours=7 * 24, **common)
+    impatient = CarryOpportunity("BTC", "binance", rate(0.0003),
+                                 max_breakeven_hours=24, **common)
+
+    assert patient.breakeven_hours == impatient.breakeven_hours  # same trade
+    assert patient.is_viable                                     # different appetite
+    assert not impatient.is_viable
+    assert "limit you set" in impatient.warnings()[0]
+
+
+def test_a_realistic_carry_at_maker_fees_is_viable():
+    """3bp funding at maker fees is ~33% APR; the tool must not reject it out of hand."""
+    o = CarryOpportunity(
+        "BTC", "binance", rate(0.0003), history=history([0.0003] * 20),
+        costs=CarryCosts(spot_fee=0.0004, perp_fee=0.00026, slippage_pct=0.0001),
+    )
+    assert o.net_annualized_pct > 25
+    assert o.is_viable, o.warnings()
+
+
 def test_flipping_funding_is_flagged():
     o = CarryOpportunity("BTC", "binance", rate(0.0005), history=history([0.0005, -0.0005] * 5))
     assert any("flips often" in w or "volatile" in w for w in o.warnings())
