@@ -295,7 +295,8 @@ tradingbot/
   risk.py           position sizing and circuit breakers
   backtest.py       event-driven backtester
   engine.py         live/paper trading loop
-  metrics.py        Sharpe, Sortino, drawdown, profit factor
+  metrics.py        Sharpe, Sortino, drawdown, profit factor, buy-and-hold
+  validation.py     walk-forward, bootstrap, random baseline, cost sweeps
   state.py          crash-safe state persistence
   notifier.py       log and webhook notifications
   strategies/       sma_cross, rsi_reversion, breakout
@@ -304,7 +305,7 @@ tradingbot/
   research/         token contract due diligence (chain sources + heuristics)
   web/              dashboard backend (standard library HTTP server)
 web/                dashboard frontend (no build step, no dependencies)
-tests/              304 tests
+tests/              334 tests
 ```
 
 ## Tests
@@ -320,6 +321,66 @@ contract heuristics, and the dashboard API — including tests asserting the web
 layer has no path to submitting an order and that the research report never
 claims to know who a team is.
 
+
+
+## Does the strategy actually work?
+
+A single backtest number is close to worthless: it is one path, on data the
+parameters were probably fitted to, with no comparison to doing nothing. Two
+commands exist to attack a result rather than present it.
+
+### validate — is this luck?
+
+```bash
+python -m tradingbot.cli validate -c config/config.yaml
+```
+
+Four checks, each of which most strategies fail:
+
+| Check | What it catches |
+|---|---|
+| **vs buy and hold** | +3% while the asset did +40% is value destroyed. Every backtest now reports this. |
+| **Bootstrap confidence interval** | Resamples the trade sequence. If the 90% interval spans zero, the headline number is noise. |
+| **vs random entries** | A random trader with the same trade count and holding period. If they match you, your logic is not what made the money — market exposure was. |
+| **Cost sensitivity** | Sweeps the fee rate to find where the edge dies. A strategy that only works below your actual fee tier is not tradable. |
+
+It prints a verdict, and "0 of 4 passed" is the normal result:
+
+```
+  Verdict: 0 of 4 checks passed
+     [FAIL] beats buy and hold
+     [FAIL] statistically positive
+     [FAIL] beats random entries
+     [FAIL] survives realistic fees
+```
+
+### walkforward — does it survive unseen data?
+
+`optimize` grid-searches and hands you the best row, which is the definition of
+overfitting. `walkforward` is the honest version: tune on one window, test on the
+**next unseen** window, roll forward, and report only the out-of-sample result.
+
+```bash
+python -m tradingbot.cli walkforward -c config/config.yaml \
+    --grid fast_period=10,20 --grid slow_period=30,50 --train 1200 --test 400
+```
+
+```
+  In-sample mean            2.16%
+  Out-of-sample mean       -0.03%
+  Degradation              -0.01    (1.0 = held up, <=0 = fitted noise)
+  Profitable windows           4 of 9
+```
+
+That is what overfitting looks like: every window profitable in training, nothing
+left once the data is unseen. It also reports **parameter stability** — a
+parameter the optimiser rechooses every window is being fitted to noise.
+
+### What this buys you
+
+Not a profitable strategy. It buys you the ability to tell the difference between
+one that works and one that got lucky — and to find out on your laptop instead of
+on an exchange. Most strategies fail these checks. That is the tooling working.
 
 ## Contract research
 

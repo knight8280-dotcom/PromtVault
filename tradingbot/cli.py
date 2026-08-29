@@ -9,6 +9,8 @@ Subcommands:
   serve     run the CBot web dashboard
   research  review a token contract address before you trade it
   optimize  grid-search strategy parameters over historical data
+  validate  stress-test a result: benchmark, luck, random baseline, costs
+  walkforward  optimise on one window and test on the next unseen one
   strategies / status  introspection helpers
 """
 
@@ -561,6 +563,204 @@ def cmd_preflight(args) -> int:
     return 0
 
 
+def cmd_validate(args) -> int:
+    """Attack a backtest result: benchmark, resampling, random baseline, costs."""
+    config = _resolve_config(args)
+    strategy = _resolve_strategy(args, config)
+    symbol = config.symbols[0]
+
+    try:
+        candles = _get_candles(args, config, symbol)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    from .validation import (
+        average_holding_bars, bootstrap_returns, cost_sensitivity, random_entry_baseline,
+    )
+
+    try:
+        result = Backtester(config, strategy).run(symbol, candles)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    m = result.metrics
+    print()
+    print(f"  Validating {strategy.describe()}")
+    print(f"  on {symbol} {config.timeframe}, {len(candles)} bars")
+    print(f"  {'=' * 68}")
+
+    checks = []
+
+    # 1 — against doing nothing at all.
+    print()
+    print("  1. Against buy and hold")
+    print(f"     strategy      {m.total_return_pct:>8.2f}%   (max drawdown {m.max_drawdown_pct:.2f}%)")
+    print(f"     buy and hold  {m.benchmark_return_pct:>8.2f}%   (max drawdown {m.benchmark_max_drawdown_pct:.2f}%)")
+    excess = m.excess_return_pct or 0.0
+    beat = excess > 0
+    checks.append(("beats buy and hold", beat))
+    print(f"     excess        {excess:>8.2f}%   -> {'BEATS holding' if beat else 'LOSES to holding'}")
+    if not beat:
+        print("     A strategy that underperforms holding has cost you money to run.")
+
+    # 2 — how much of this was ordering luck.
+    print()
+    print("  2. Is the result distinguishable from luck?")
+    boot = bootstrap_returns(result.trades, config.execution.starting_cash)
+    if boot is None:
+        print("     no trades to resample")
+        checks.append(("statistically positive", False))
+    else:
+        print(f"     {boot.trade_count} trades resampled {boot.samples:,} times")
+        print(f"     90% confidence interval  [{boot.low_return_pct:+.2f}%, {boot.high_return_pct:+.2f}%]")
+        print(f"     probability of profit    {boot.probability_profitable:.1%}")
+        solid = not boot.interval_includes_zero and boot.low_return_pct > 0
+        checks.append(("statistically positive", solid))
+        if boot.interval_includes_zero:
+            print("     -> The interval spans zero: this is not distinguishable from break-even.")
+        else:
+            print(f"     -> Interval excludes zero.")
+
+    # 3 — versus a trader with no idea what they are doing.
+    print()
+    print("  3. Against random entries, trading just as often")
+    holding = average_holding_bars(result.trades, config.timeframe)
+    baseline = random_entry_baseline(
+        candles, m.total_trades, holding, strategy_return_pct=m.total_return_pct,
+        fee_rate=config.execution.fee_rate, slippage_pct=config.execution.slippage_pct,
+    )
+    if baseline is None:
+        print("     not enough trades to compare")
+        checks.append(("beats random entries", False))
+    else:
+        print(f"     {baseline.trade_count} random trades held {baseline.holding_bars} bars, "
+              f"{baseline.iterations:,} runs")
+        print(f"     strategy       {baseline.strategy_return_pct:>8.2f}%")
+        print(f"     random median  {baseline.median_random_return_pct:>8.2f}%")
+        print(f"     beat {baseline.percentile:.1%} of random traders (p = {baseline.p_value:.3f})")
+        checks.append(("beats random entries", baseline.significant))
+        if not baseline.significant:
+            print("     -> Not significant. Random entries at this frequency do about as well,")
+            print("        so the strategy logic is not what produced the result.")
+
+    # 4 — does it survive real trading costs.
+    print()
+    print("  4. Sensitivity to trading costs")
+    costs = cost_sensitivity(config, strategy, candles, symbol=symbol)
+    for point in costs.points:
+        marker = "  <- your setting" if abs(point.fee_rate - config.execution.fee_rate) < 1e-9 else ""
+        print(f"     fee {point.fee_rate:.4f}   {point.total_return_pct:>8.2f}%{marker}")
+    breakeven = costs.breakeven_fee
+    survives = breakeven is not None and breakeven > config.execution.fee_rate
+    checks.append(("survives realistic fees", survives))
+    if breakeven is None:
+        print("     -> Unprofitable at every fee level tested, including zero.")
+    elif breakeven <= 0:
+        print("     -> Only profitable at zero fees. Not tradable.")
+    else:
+        print(f"     -> Breaks even around {breakeven:.4f}; you pay {config.execution.fee_rate:.4f}.")
+
+    # Verdict
+    passed = sum(1 for _, ok in checks if ok)
+    print()
+    print(f"  {'=' * 68}")
+    print(f"  Verdict: {passed} of {len(checks)} checks passed")
+    for name, ok in checks:
+        print(f"     [{'PASS' if ok else 'FAIL'}] {name}")
+    print()
+    if passed == len(checks):
+        print("  Every check passed on this data. That is necessary, not sufficient:")
+        print("  run walkforward next to see whether it survives out of sample.")
+    elif passed == 0:
+        print("  This strategy does not work on this data. That is the normal result,")
+        print("  and finding it here costs nothing.")
+    else:
+        print("  Mixed. Treat the failed checks as disqualifying until you can explain")
+        print("  them — a strategy that fails any one of these is not ready for money.")
+    print()
+    return 0
+
+
+def cmd_walkforward(args) -> int:
+    """Optimise on one window, test on the next unseen one, roll forward."""
+    config = _resolve_config(args)
+    symbol = config.symbols[0]
+    name = getattr(args, "strategy", None) or config.strategy.name
+
+    grid = {}
+    for pair in args.grid:
+        key, _, raw = pair.partition("=")
+        grid[key.strip()] = [_coerce(v.strip()) for v in raw.split(",")]
+    if not grid:
+        raise SystemExit("error: --grid is required, e.g. --grid fast_period=10,20")
+
+    try:
+        candles = _get_candles(args, config, symbol)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    from .validation import walk_forward
+
+    try:
+        wf = walk_forward(
+            config, name, grid, candles,
+            train_bars=args.train, test_bars=args.test, scorer=args.sort, symbol=symbol,
+        )
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if not wf.windows:
+        print("error: no complete train/test windows fitted in this data", file=sys.stderr)
+        return 1
+
+    print()
+    print(f"  Walk-forward: {name} on {symbol} {config.timeframe}")
+    print(f"  {args.train} train / {args.test} test bars, optimised for {args.sort}")
+    print(f"  {'=' * 72}")
+    print(f"  {'win':<5}{'parameters':<34}{'in-sample':>12}{'out-of-sample':>16}")
+    print(f"  {'-' * 72}")
+    for w in wf.windows:
+        label = ", ".join(f"{k}={v}" for k, v in sorted(w.params.items()))
+        print(f"  {w.index:<5}{label[:33]:<34}{w.in_sample.total_return_pct:>11.2f}%"
+              f"{w.out_of_sample.total_return_pct:>15.2f}%")
+
+    print()
+    print(f"  In-sample mean        {wf.in_sample_mean:>8.2f}%")
+    print(f"  Out-of-sample mean    {wf.out_of_sample_mean:>8.2f}%")
+    print(f"  Degradation           {wf.degradation:>8.2f}    (1.0 = held up, <=0 = fitted noise)")
+    print(f"  Profitable windows    {wf.profitable_windows:>8} of {len(wf.windows)}")
+    if wf.combined:
+        print(f"  Combined out-of-sample{wf.combined.total_return_pct:>8.2f}%   "
+              f"(max drawdown {wf.combined.max_drawdown_pct:.2f}%)")
+        if wf.combined.benchmark_return_pct is not None:
+            print(f"  Buy and hold, same span{wf.combined.benchmark_return_pct:>7.2f}%")
+
+    print()
+    print("  Parameter stability (distinct values chosen across windows)")
+    for key, count in wf.parameter_stability.items():
+        note = "stable" if count == 1 else ("drifting" if count <= 2 else "unstable — fitting noise")
+        print(f"     {key:<24}{count:>3}   {note}")
+
+    print()
+    honest = wf.combined.total_return_pct if wf.combined else 0.0
+    hold = wf.combined.benchmark_return_pct if wf.combined and wf.combined.benchmark_return_pct is not None else None
+    if honest <= 0:
+        print("  Out of sample this loses money. The in-sample numbers were the optimiser")
+        print("  fitting noise — which is what a grid search does by default.")
+    elif hold is not None and honest < hold:
+        print("  Profitable out of sample, but buy and hold did better over the same span")
+        print("  with no execution risk. That is not an edge worth running.")
+    else:
+        print("  Survives out of sample. Test other periods and instruments before")
+        print("  trusting it, and re-check the cost sensitivity at your real fee tier.")
+    print()
+    return 0
+
+
 class _SyntheticSource:
     """Feeds the paper engine generated candles, for offline smoke tests."""
 
@@ -644,6 +844,20 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--iterations", type=int, help="stop after N cycles")
     p.add_argument("--poll-interval", type=int, help="seconds between cycles (default: from config)")
     p.set_defaults(func=cmd_live)
+
+    p = sub.add_parser("validate", help="stress-test a backtest result for luck and costs")
+    common(p, data=True)
+    p.set_defaults(func=cmd_validate)
+
+    p = sub.add_parser("walkforward", help="optimise and test on unseen data, rolling forward")
+    common(p, data=True)
+    p.add_argument("--grid", action="append", default=[], metavar="KEY=V1,V2",
+                   help="parameter values to sweep (repeatable)")
+    p.add_argument("--train", type=int, default=1000, help="bars in each training window")
+    p.add_argument("--test", type=int, default=250, help="bars in each unseen test window")
+    p.add_argument("--sort", default="sharpe", choices=["sharpe", "return", "calmar", "excess"],
+                   help="what to optimise for on the training window")
+    p.set_defaults(func=cmd_walkforward)
 
     p = sub.add_parser("preflight", help="check a live-trading setup before you use it")
     common(p)

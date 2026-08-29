@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from .config import Config
 from .exchange.paper import InsufficientFunds, PaperBroker
-from .metrics import Metrics, compute
+from .metrics import Metrics, attach_benchmark, buy_and_hold, compute
 from .models import AccountState, Candle, EquityPoint, Order, Side, Signal, SignalType, Trade
 from .risk import RiskManager
 from .strategies.base import Strategy
@@ -25,6 +25,7 @@ class BacktestResult:
     metrics: Metrics
     trades: list[Trade] = field(default_factory=list)
     equity_curve: list[EquityPoint] = field(default_factory=list)
+    benchmark_curve: list[EquityPoint] = field(default_factory=list)
     symbol: str = ""
     strategy: str = ""
     rejections: dict[str, int] = field(default_factory=dict)
@@ -107,10 +108,23 @@ class Backtester:
                 )
 
         metrics = compute(equity_curve, broker.trades, self.config.timeframe, bars_in_market)
+
+        # Always compare against doing nothing. A strategy that underperforms
+        # buy-and-hold has cost you money however good its own numbers look.
+        benchmark_metrics, benchmark_curve = buy_and_hold(
+            candles,
+            starting_cash=exec_cfg.starting_cash,
+            fee_rate=exec_cfg.fee_rate,
+            slippage_pct=exec_cfg.slippage_pct,
+            timeframe=self.config.timeframe,
+        )
+        attach_benchmark(metrics, benchmark_metrics)
+
         return BacktestResult(
             metrics=metrics,
             trades=list(broker.trades),
             equity_curve=equity_curve,
+            benchmark_curve=benchmark_curve,
             symbol=symbol,
             strategy=self.strategy.describe(),
             rejections=rejections,

@@ -50,14 +50,34 @@ class Metrics:
     total_fees: float = 0.0
     exposure_pct: float = 0.0
 
+    # Buy-and-hold over the same window. An absolute return means nothing without
+    # it: +3% while the asset did +40% is value destroyed, not value created.
+    benchmark_return_pct: float | None = None
+    benchmark_max_drawdown_pct: float | None = None
+    benchmark_sharpe_ratio: float | None = None
+
     start: datetime | None = None
     end: datetime | None = None
     exit_reasons: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def excess_return_pct(self) -> float | None:
+        """Return above buy-and-hold. Negative means holding would have beaten you."""
+        if self.benchmark_return_pct is None:
+            return None
+        return self.total_return_pct - self.benchmark_return_pct
+
+    @property
+    def beat_benchmark(self) -> bool | None:
+        excess = self.excess_return_pct
+        return None if excess is None else excess > 0
 
     def as_dict(self) -> dict:
         out = {}
         for key, value in self.__dict__.items():
             out[key] = value.isoformat() if isinstance(value, datetime) else value
+        out["excess_return_pct"] = self.excess_return_pct
+        out["beat_benchmark"] = self.beat_benchmark
         return out
 
 
@@ -149,11 +169,18 @@ def compute(
         variance = sum((r - mean) ** 2 for r in rets) / (len(rets) - 1)
         m.volatility_pct = math.sqrt(variance) * math.sqrt(periods) * 100
 
-    # Annualise the realised return over the actual elapsed bars.
+    # Annualise the realised return over the actual elapsed bars. Spans shorter
+    # than a week are left alone: compounding a few hours out to a year produces
+    # a number that is meaningless at best and overflows at worst.
     if len(values) > 1 and m.starting_equity > 0 and m.ending_equity > 0:
         years = (len(values) - 1) / periods
-        if years > 0:
-            m.annualized_return_pct = ((m.ending_equity / m.starting_equity) ** (1 / years) - 1) * 100
+        if years >= 1 / 52:
+            try:
+                m.annualized_return_pct = (
+                    (m.ending_equity / m.starting_equity) ** (1 / years) - 1
+                ) * 100
+            except OverflowError:
+                m.annualized_return_pct = float("inf")
     if m.max_drawdown_pct > 0:
         m.calmar_ratio = m.annualized_return_pct / m.max_drawdown_pct
 
@@ -191,6 +218,69 @@ def _summarise_trades(m: Metrics, trades: list[Trade]) -> None:
         m.exit_reasons[reason] = m.exit_reasons.get(reason, 0) + 1
 
 
+def buy_and_hold(
+    candles,
+    starting_cash: float = 10_000.0,
+    fee_rate: float = 0.001,
+    slippage_pct: float = 0.0005,
+    timeframe: str = "1h",
+) -> tuple[Metrics, list[EquityPoint]]:
+    """What you would have made by buying at the start and doing nothing.
+
+    Charged the same fees and slippage as a strategy trade, so the comparison is
+    like for like rather than flattering the passive alternative.
+    """
+    m = Metrics()
+    if not candles:
+        return m, []
+
+    entry = candles[0].open * (1 + slippage_pct)
+    if entry <= 0:
+        return m, []
+
+    # One buy at the start; the exit fee is subtracted at the end.
+    units = (starting_cash / (1 + fee_rate)) / entry
+
+    curve: list[EquityPoint] = []
+    for candle in candles:
+        curve.append(EquityPoint(candle.timestamp, units * candle.close, 0.0, units * candle.close))
+
+    exit_price = candles[-1].close * (1 - slippage_pct)
+    final = units * exit_price * (1 - fee_rate)
+    curve[-1] = EquityPoint(candles[-1].timestamp, final, final, 0.0)
+
+    m = compute(curve, [], timeframe, bars_in_market=len(candles))
+    m.starting_equity = starting_cash
+    m.total_return_pct = (final / starting_cash - 1) * 100 if starting_cash else 0.0
+    m.total_fees = starting_cash - units * entry + units * exit_price * fee_rate
+    return m, curve
+
+
+def attach_benchmark(strategy_metrics: Metrics, benchmark_metrics: Metrics) -> None:
+    """Record the passive alternative alongside a strategy's own numbers."""
+    strategy_metrics.benchmark_return_pct = benchmark_metrics.total_return_pct
+    strategy_metrics.benchmark_max_drawdown_pct = benchmark_metrics.max_drawdown_pct
+    strategy_metrics.benchmark_sharpe_ratio = benchmark_metrics.sharpe_ratio
+
+
+def _benchmark_lines(m: Metrics) -> list[str]:
+    """The buy-and-hold comparison, printed right under the headline return."""
+    if m.benchmark_return_pct is None:
+        return []
+    excess = m.excess_return_pct or 0.0
+    verdict = "beat" if excess > 0 else "LOST TO"
+    lines = [
+        f"  Buy and hold          {m.benchmark_return_pct:>13.2f}%",
+        f"  Excess vs holding     {excess:>13.2f}%   ({verdict} buy and hold)",
+    ]
+    if m.benchmark_max_drawdown_pct is not None:
+        lines.append(
+            f"  Drawdown vs holding   {m.max_drawdown_pct:>13.2f}%   "
+            f"(holding: {m.benchmark_max_drawdown_pct:.2f}%)"
+        )
+    return lines
+
+
 def format_report(m: Metrics, title: str = "Results") -> str:
     """Render metrics as a plain-text report."""
     pf = "inf" if m.profit_factor == math.inf else f"{m.profit_factor:.2f}"
@@ -206,6 +296,7 @@ def format_report(m: Metrics, title: str = "Results") -> str:
         f"  Starting equity       {m.starting_equity:>14,.2f}",
         f"  Ending equity         {m.ending_equity:>14,.2f}",
         f"  Total return          {m.total_return_pct:>13.2f}%",
+        *_benchmark_lines(m),
         f"  Annualized return     {m.annualized_return_pct:>13.2f}%",
         f"  Max drawdown          {m.max_drawdown_pct:>13.2f}%",
         f"  Volatility (ann.)     {m.volatility_pct:>13.2f}%",
