@@ -57,12 +57,20 @@ Prefer a browser? `python -m tradingbot.cli serve` opens the same thing as a
 ```bash
 cp config/config.example.yaml config/config.yaml
 
-# Download and cache a year of hourly candles
+# Download and cache a year of hourly candles from the configured exchange
 python -m tradingbot.cli fetch -c config/config.yaml --days 365
+
+# Or, with no API key and no ccxt — works where exchanges are geo-blocked
+python -m tradingbot.cli fetch --source coingecko -s BTC/USD --days 90
 
 # Backtest against it
 python -m tradingbot.cli backtest -c config/config.yaml
 ```
+
+The CoinGecko source returns **closing prices only**, so bars carry no true
+intrabar high or low. Stops and targets are evaluated against the close and
+trigger less often than they would live, which flatters stop-heavy strategies.
+Use it to get moving; confirm anything promising on exchange data.
 
 Fetching needs no API key — public market data is unauthenticated. Candles are
 cached in `data_cache/` so repeat backtests are instant and offline. You can also
@@ -301,11 +309,11 @@ tradingbot/
   notifier.py       log and webhook notifications
   strategies/       sma_cross, rsi_reversion, breakout
   exchange/         paper broker and ccxt adapter
-  data/             OHLCV loading, CSV cache, synthetic generator
+  data/             OHLCV loading, CSV cache, CoinGecko, synthetic generator
   research/         token contract due diligence (chain sources + heuristics)
   web/              dashboard backend (standard library HTTP server)
 web/                dashboard frontend (no build step, no dependencies)
-tests/              334 tests
+tests/              353 tests
 ```
 
 ## Tests

@@ -338,6 +338,9 @@ def strategy_summary(config: Config, args) -> str:
 
 def cmd_fetch(args) -> int:
     config = _resolve_config(args)
+    if args.source == "coingecko":
+        return _fetch_public(config, args)
+
     from .data.feed import download
 
     for symbol in config.symbols:
@@ -347,6 +350,34 @@ def cmd_fetch(args) -> int:
         path = csv_store.cache_path(config.data_dir, symbol, config.timeframe)
         span = f"{candles[0].timestamp:%Y-%m-%d} to {candles[-1].timestamp:%Y-%m-%d}" if candles else "empty"
         print(f"  {symbol} {config.timeframe}: {len(candles)} candles ({span}) -> {path}")
+    return 0
+
+
+def _fetch_public(config: Config, args) -> int:
+    """Fetch from CoinGecko: no API key, works where exchanges are geo-blocked."""
+    from .data import coingecko, csv_store
+
+    for symbol in config.symbols:
+        try:
+            if config.timeframe == "1d":
+                candles = coingecko.fetch_daily(symbol, days=args.days)
+            else:
+                candles = coingecko.fetch_hourly(symbol, days=min(args.days, 90))
+        except coingecko.CoinGeckoError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+
+        path = csv_store.cache_path(config.data_dir, symbol, config.timeframe)
+        csv_store.save(path, candles)
+        span = f"{candles[0].timestamp:%Y-%m-%d} to {candles[-1].timestamp:%Y-%m-%d}"
+        print(f"  {symbol} {config.timeframe}: {len(candles)} candles ({span}) -> {path}")
+
+    if config.timeframe != "1d":
+        print()
+        print("  Note: this source returns closing prices only, so bars have no true")
+        print("  intrabar high or low. Stops and targets are evaluated against the close")
+        print("  and will trigger less often than in live trading. Confirm anything")
+        print("  promising on exchange data before trusting it.")
     return 0
 
 
@@ -866,6 +897,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("fetch", help="download and cache OHLCV history")
     common(p)
     p.add_argument("--days", type=int, default=365, help="days of history to download")
+    p.add_argument("--source", default="exchange", choices=["exchange", "coingecko"],
+                   help="where to get data: the configured exchange (needs ccxt and a "
+                        "reachable venue) or CoinGecko (no key, close prices only)")
     p.set_defaults(func=cmd_fetch)
 
     p = sub.add_parser("serve", help="run the CBot web dashboard")
