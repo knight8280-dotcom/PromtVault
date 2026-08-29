@@ -5,6 +5,7 @@ Subcommands:
   paper     run the live loop against real prices with simulated money
   live      run the live loop with real money (guarded, see `_confirm_live`)
   fetch     download and cache OHLCV history
+  serve     run the CBot web dashboard
   optimize  grid-search strategy parameters over historical data
   strategies / status  introspection helpers
 """
@@ -66,7 +67,9 @@ def _resolve_strategy(args, config: Config):
     params.update(_parse_params(getattr(args, "param", None) or []))
     try:
         return get_strategy(name, **params)
-    except (KeyError, ValueError) as exc:
+    except KeyError as exc:
+        raise SystemExit(f"error: {exc.args[0]}")
+    except ValueError as exc:
         raise SystemExit(f"error: {exc}")
 
 
@@ -385,6 +388,14 @@ def cmd_status(args) -> int:
     return 0
 
 
+def cmd_serve(args) -> int:
+    config = _resolve_config(args)
+    from .web import serve
+
+    serve(config, host=args.host, port=args.port)
+    return 0
+
+
 class _SyntheticSource:
     """Feeds the paper engine generated candles, for offline smoke tests."""
 
@@ -473,6 +484,13 @@ def build_parser() -> argparse.ArgumentParser:
     common(p)
     p.add_argument("--days", type=int, default=365, help="days of history to download")
     p.set_defaults(func=cmd_fetch)
+
+    p = sub.add_parser("serve", help="run the CBot web dashboard")
+    common(p)
+    p.add_argument("--host", default="127.0.0.1",
+                   help="bind address (default: localhost only)")
+    p.add_argument("--port", type=int, default=8000)
+    p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("strategies", help="list strategies and their parameters")
     p.add_argument("--log-level", default="WARNING")

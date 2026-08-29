@@ -49,6 +49,9 @@ Synthetic data is a random walk, so a losing result is the *correct* one — no
 edge, minus fees, is negative. It exercises the machinery; it tells you nothing
 about a strategy. Use real data before drawing any conclusion.
 
+Prefer a browser? `python -m tradingbot.cli serve` opens the same thing as a
+[dashboard](#dashboard).
+
 ## Real data
 
 ```bash
@@ -231,8 +234,9 @@ tradingbot/
   strategies/       sma_cross, rsi_reversion, breakout
   exchange/         paper broker and ccxt adapter
   data/             OHLCV loading, CSV cache, synthetic generator
-web/                CBot dashboard (static site)
-tests/              151 tests
+  web/              dashboard backend (standard library HTTP server)
+web/                dashboard frontend (no build step, no dependencies)
+tests/              175 tests
 ```
 
 ## Tests
@@ -243,22 +247,32 @@ pip install pytest && python -m pytest
 
 They run offline in a few seconds. The suite covers indicator maths, risk limits
 and circuit breakers, cash and fee accounting, look-ahead prevention, state
-recovery after a crash, and the live-trading guards.
+recovery after a crash, the live-trading guards, and the dashboard API — including
+a test asserting the web layer has no path to submitting an order.
 
 ## Dashboard
 
-A static dashboard lives in `web/`. Open `web/index.html` directly, or:
+CBot ships with a web dashboard — run backtests from a browser, see the equity
+curve, and check on a running bot:
 
 ```bash
-python -m http.server 8000 --directory web
+python -m tradingbot.cli serve -c config/config.yaml
+# CBot dashboard: http://127.0.0.1:8000
 ```
 
-It renders backtest results exported with `--json`, so you can look at an equity
-curve and a trade list instead of a wall of terminal output:
+The backend is standard library only, so this adds no dependencies. It binds to
+localhost by default; `--host 0.0.0.0` exposes it to your network, and it has no
+authentication, so only do that on a network you trust.
 
-```bash
-python -m tradingbot.cli backtest -c config/config.yaml --json web/results.json
-```
+**The dashboard cannot place orders.** It runs backtests and reads saved state,
+nothing more. Live trading stays on the command line where the confirmation locks
+are — a real order should not be one click away in a browser tab.
+
+Pick a strategy, adjust its parameters and risk settings, and run. Results render
+as summary statistics, an equity curve, and a trade-by-trade table with exit
+reasons. The **Bot state** panel reads `state/bot_state.json`, so you can watch a
+paper or live session from the same page. Symbols you have fetched appear as
+autocomplete suggestions; the dashboard reads the cache and never downloads.
 
 ## License
 
