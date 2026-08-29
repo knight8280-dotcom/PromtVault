@@ -95,6 +95,13 @@ class FakeExchange:
             "timestamp": 1_700_000_000_000,
         }
 
+    markets: dict = {"BTC/USDT": {"limits": {"cost": {"min": 5.0}}}}
+
+    def load_markets(self):
+        self._maybe_fail("load_markets")
+        self.calls.append(("load_markets",))
+        return type(self).markets
+
     def close(self):
         self.calls.append(("close",))
 
@@ -120,6 +127,7 @@ def install(monkeypatch, **exchange_attrs):
         "order_response": None,
         "sandbox_supported": True,
         "failures": [],
+        "markets": {"BTC/USDT": {"limits": {"cost": {"min": 5.0}}}},
     }
     for key, value in {**defaults, **exchange_attrs}.items():
         setattr(FakeExchange, key, value)

@@ -246,7 +246,9 @@ class RiskManager:
                 return min(position.stop_price, candle.open)
             return max(position.stop_price, candle.open)
         if reason == "take profit" and position.take_profit_price is not None:
+            # A limit order at the target fills at the open when the market gaps
+            # through it, which is in our favour — the mirror of the stop case.
             if position.side is Side.BUY:
-                return max(position.take_profit_price, candle.open) if candle.open > position.take_profit_price else position.take_profit_price
-            return position.take_profit_price
+                return max(position.take_profit_price, candle.open)
+            return min(position.take_profit_price, candle.open)
         return candle.close

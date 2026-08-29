@@ -173,3 +173,22 @@ def test_resume_clears_a_halt():
     assert rm.is_halted
     rm.resume()
     assert not rm.is_halted
+
+
+def test_a_favourable_gap_through_the_target_fills_at_the_open():
+    """A limit order at the target fills better when the market gaps past it."""
+    rm = RiskManager(RiskConfig())
+    long_position = Position("BTC/USDT", Side.BUY, 1.0, 100.0, NOW, take_profit_price=105.0)
+    gapped_up = Candle(NOW, 112.0, 115.0, 110.0, 113.0, 1.0)
+    assert rm.exit_fill_price(long_position, gapped_up, "take profit") == pytest.approx(112.0)
+
+    short_position = Position("BTC/USDT", Side.SELL, 1.0, 100.0, NOW, take_profit_price=95.0)
+    gapped_down = Candle(NOW, 88.0, 90.0, 85.0, 87.0, 1.0)
+    assert rm.exit_fill_price(short_position, gapped_down, "take profit") == pytest.approx(88.0)
+
+
+def test_the_target_is_used_when_the_bar_does_not_gap():
+    rm = RiskManager(RiskConfig())
+    position = Position("BTC/USDT", Side.BUY, 1.0, 100.0, NOW, take_profit_price=105.0)
+    normal = Candle(NOW, 101.0, 106.0, 100.0, 104.0, 1.0)
+    assert rm.exit_fill_price(position, normal, "take profit") == pytest.approx(105.0)

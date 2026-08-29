@@ -99,15 +99,81 @@ between a typo and a filled order:
 
 ```bash
 set -a && source .env && set +a
+python -m tradingbot.cli preflight -c config/config.yaml   # check first
 python -m tradingbot.cli live -c config/config.yaml --i-understand-the-risk
 ```
 
-Credentials come from environment variables only, never from the config file —
-a config is always safe to commit or share. Create exchange API keys with
-**trading permission only**; never enable withdrawals on a key a bot holds.
+### CBot uses exchange API keys, not a wallet
 
-Start with `exchange.testnet: true`. Run it for weeks. Only then consider real
-funds, and start with an amount whose total loss would not matter to you.
+This is the part people get wrong, so it is worth being blunt about.
+
+CBot trades on **centralized exchanges** — Binance, Kraken, Coinbase, Bybit and
+the rest — through their trading APIs. It does **not** connect a self-custody
+wallet, does not trade on DEXs, and has no code path that touches a private key
+or seed phrase.
+
+**Never give your seed phrase or private key to any trading bot, including this
+one.** A seed phrase grants permanent, total control of every asset in that
+wallet, and no bot needs it. Anything that asks for one can empty the wallet, and
+that is usually the point. `preflight` fails loudly if a seed phrase is pasted
+where an API key belongs.
+
+What CBot needs instead is an exchange API key, which is revocable, permission-
+scoped, and cannot move funds off the exchange when created correctly.
+
+### Connecting an exchange account
+
+1. **Fund an exchange account** with the quote currency you configured (USDT for
+   `BTC/USDT`). The bot trades the balance sitting on the exchange.
+2. **Create an API key** in that exchange's security settings with:
+   - **Enable Spot Trading** — on. This is all the bot needs.
+   - **Enable Withdrawals** — **off**. Never on. This is what stops a leaked key
+     becoming a drained account.
+   - **IP allowlist** — set it to the machine that will run the bot. Most venues
+     support this and it is the single most effective protection available.
+3. **Put the key in your environment**, never in the config file:
+   ```bash
+   cp .env.example .env      # then edit it
+   set -a && source .env && set +a
+   ```
+   `.env` is gitignored. The config file only stores the *names* of these
+   variables, so it stays safe to share.
+4. **Point the config at the venue** and start on its testnet:
+   ```yaml
+   exchange:
+     name: binance
+     testnet: true       # real funds only after this has run clean
+   execution:
+     mode: live
+     confirm_live: true
+   ```
+5. **Run preflight.** It checks the key works, the balance is readable and large
+   enough to clear the venue's minimum order size, and the symbols are actually
+   tradable there — all without placing an order:
+   ```bash
+   python -m tradingbot.cli preflight -c config/config.yaml
+   ```
+6. **Trade the testnet for a few weeks.** Not hours. You are looking for whether
+   it behaves as the backtest suggested, and how it handles restarts and
+   disconnects.
+7. **Go live small.** Flip `testnet: false` and fund the account with an amount
+   whose total loss would not change your life. First live size should feel
+   almost pointless.
+
+### Once it is live
+
+- `python -m tradingbot.cli status -c config/config.yaml` shows open positions and
+  risk counters. The dashboard shows the same thing.
+- Ctrl-C stops cleanly at the end of a cycle. **It does not close open positions**
+   — close those yourself, on the exchange, if you want to be flat.
+- If a circuit breaker trips, the bot flattens and halts, and stays halted across
+  restarts. That is deliberate: work out what happened before restarting it.
+- Revoke the API key on the exchange if anything looks wrong. That is the kill
+  switch, and it works even if the machine running the bot does not respond.
+
+Realistically: the bundled strategies are textbook examples, not edges. Expect a
+live run to lose money net of fees. Treat the first live deployment as a test of
+the plumbing, not of the strategy.
 
 ## Strategies
 
@@ -222,6 +288,7 @@ partial fills. Treat every result as an upper bound.
 ```
 tradingbot/
   cli.py            command line entry point
+  preflight.py      live-setup checks that place no orders
   config.py         YAML config loading and validation
   models.py         Candle, Signal, Order, Position, Trade
   indicators.py     SMA, EMA, RSI, ATR, Bollinger, rolling extremes
@@ -237,7 +304,7 @@ tradingbot/
   research/         token contract due diligence (chain sources + heuristics)
   web/              dashboard backend (standard library HTTP server)
 web/                dashboard frontend (no build step, no dependencies)
-tests/              287 tests
+tests/              304 tests
 ```
 
 ## Tests

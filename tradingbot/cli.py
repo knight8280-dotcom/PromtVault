@@ -4,6 +4,7 @@ Subcommands:
   backtest  replay a strategy over historical data
   paper     run the live loop against real prices with simulated money
   live      run the live loop with real money (guarded, see `_confirm_live`)
+  preflight validate a live-trading setup without placing orders
   fetch     download and cache OHLCV history
   serve     run the CBot web dashboard
   research  review a token contract address before you trade it
@@ -524,6 +525,42 @@ def _wrap(text: str, width: int) -> list[str]:
     return textwrap.wrap(text, width) or [""]
 
 
+STATUS_MARKS = {"pass": "OK  ", "warn": "WARN", "fail": "FAIL", "skip": "--  "}
+
+
+def cmd_preflight(args) -> int:
+    """Check a live-trading setup without placing a single order."""
+    config = _resolve_config(args)
+    from .preflight import run_preflight
+
+    report = run_preflight(config)
+
+    print()
+    print(f"  Pre-flight: {config.exchange.name} "
+          f"({'testnet' if config.exchange.testnet else 'PRODUCTION'})")
+    print(f"  {'=' * 66}")
+    for check in report.checks:
+        print(f"  [{STATUS_MARKS.get(check.status.value, '?')}] {check.name}")
+        print(f"         {check.message}")
+        if check.fix:
+            for line in _wrap(check.fix, 62):
+                print(f"         -> {line}")
+        print()
+
+    if report.failures:
+        print(f"  NOT READY — {len(report.failures)} check(s) failed. Fix them before going live.")
+        print()
+        return 1
+
+    if report.warnings:
+        print(f"  Ready, with {len(report.warnings)} warning(s) above. Read them before starting.")
+    else:
+        print("  Ready. Start small: your first live run should risk an amount you would")
+        print("  not mind losing entirely.")
+    print()
+    return 0
+
+
 class _SyntheticSource:
     """Feeds the paper engine generated candles, for offline smoke tests."""
 
@@ -607,6 +644,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--iterations", type=int, help="stop after N cycles")
     p.add_argument("--poll-interval", type=int, help="seconds between cycles (default: from config)")
     p.set_defaults(func=cmd_live)
+
+    p = sub.add_parser("preflight", help="check a live-trading setup before you use it")
+    common(p)
+    p.set_defaults(func=cmd_preflight)
 
     p = sub.add_parser("fetch", help="download and cache OHLCV history")
     common(p)
