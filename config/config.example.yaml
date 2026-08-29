@@ -1,0 +1,56 @@
+# CBot configuration.
+#
+# Copy to config/config.yaml and edit. Secrets NEVER go in this file — API keys
+# are read from environment variables named below (see .env.example).
+
+symbols:
+  - BTC/USDT
+timeframe: 1h          # 1m 3m 5m 15m 30m 1h 2h 4h 6h 12h 1d
+
+exchange:
+  name: binance        # any ccxt exchange id: binance, kraken, coinbase, bybit, ...
+  testnet: true        # false means REAL funds on the production venue
+  rate_limit: true
+  # Names of environment variables, not the values themselves.
+  api_key_env: EXCHANGE_API_KEY
+  api_secret_env: EXCHANGE_API_SECRET
+  api_password_env: EXCHANGE_API_PASSWORD
+
+strategy:
+  name: sma_cross      # sma_cross | rsi_reversion | breakout
+  params:
+    fast_period: 20
+    slow_period: 50
+    use_ema: false
+    atr_stop_multiple: 2.0
+
+risk:
+  # Fraction of equity lost if a trade stops out. Position size is derived from
+  # this and the distance to the stop, so a wider stop means a smaller position.
+  risk_per_trade: 0.01
+  max_position_pct: 0.20          # ceiling on one position's notional
+  max_total_exposure_pct: 0.60    # ceiling on combined exposure
+  max_open_positions: 3
+
+  # Circuit breakers. Both flatten every position and stop trading when tripped.
+  max_daily_loss_pct: 0.05        # resets at UTC midnight
+  max_drawdown_pct: 0.20          # does NOT reset; requires a manual restart
+
+  stop_loss_pct: 0.02             # used when a strategy supplies no stop
+  take_profit_pct: 0.04           # null disables fixed targets
+  trailing_stop_pct: null         # e.g. 0.03 to trail 3% behind the high
+  allow_shorts: false
+
+execution:
+  mode: paper                     # paper | live
+  starting_cash: 10000.0          # paper mode only
+  fee_rate: 0.001                 # taker fee per side
+  slippage_pct: 0.0005            # modelled market-order slippage
+  poll_interval: 60               # seconds between cycles
+  min_order_notional: 10.0
+  # Live trading also requires --i-understand-the-risk on the command line.
+  confirm_live: false
+
+log_level: INFO
+state_dir: state
+data_dir: data_cache
