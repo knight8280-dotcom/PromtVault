@@ -1,0 +1,8 @@
+# Core runtime
+PyYAML>=6.0
+
+# Exchange connectivity (optional at import time; required for live/real data)
+ccxt>=4.2.0
+
+# Development
+pytest>=7.4

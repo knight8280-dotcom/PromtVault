@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CBot — Crypto Trading Bot</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🤖</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">◆</span>
+    <div>
+      <h1>CBot</h1>
+      <p class="tagline">Automated crypto trading — backtest, paper, live</p>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <span id="mode-badge" class="badge badge-muted">loading…</span>
+    <button id="theme-toggle" class="icon-button" title="Toggle theme" aria-label="Toggle theme">◐</button>
+  </div>
+</header>
+
+<div class="banner" role="note">
+  <strong>Backtests only.</strong> This dashboard cannot place orders — live
+  trading stays on the command line, behind its confirmation locks.
+</div>
+
+<main>
+  <!-- ---------------------------------------------------------------- -->
+  <section class="panel" id="controls">
+    <h2>Run a backtest</h2>
+    <form id="backtest-form">
+      <div class="grid">
+        <label>
+          <span>Strategy</span>
+          <select id="strategy" name="strategy"></select>
+        </label>
+        <label>
+          <span>Symbol</span>
+          <input id="symbol" name="symbol" list="symbol-options" value="BTC/USDT" autocomplete="off">
+          <datalist id="symbol-options"></datalist>
+        </label>
+        <label>
+          <span>Timeframe</span>
+          <select id="timeframe" name="timeframe">
+            <option>1m</option><option>5m</option><option>15m</option>
+            <option>30m</option><option selected>1h</option><option>4h</option>
+            <option>12h</option><option>1d</option>
+          </select>
+        </label>
+        <label>
+          <span>Starting cash</span>
+          <input id="starting_cash" name="starting_cash" type="number" min="100" step="100" value="10000">
+        </label>
+        <label>
+          <span>Risk per trade</span>
+          <input id="risk_per_trade" name="risk_per_trade" type="number" min="0.001" max="0.1" step="0.001" value="0.01">
+        </label>
+        <label>
+          <span>Fee rate</span>
+          <input id="fee_rate" name="fee_rate" type="number" min="0" max="0.01" step="0.0001" value="0.001">
+        </label>
+      </div>
+
+      <fieldset id="params-box">
+        <legend>Strategy parameters</legend>
+        <div class="grid" id="params"></div>
+      </fieldset>
+
+      <div class="row">
+        <label class="checkbox">
+          <input type="checkbox" id="synthetic" checked>
+          <span>Use synthetic data <em>(demo only — proves nothing about a strategy)</em></span>
+        </label>
+        <label class="inline" id="bars-field">
+          <span>Bars</span>
+          <input id="bars" type="number" min="100" max="20000" step="100" value="3000">
+        </label>
+      </div>
+
+      <div class="actions">
+        <button type="submit" id="run" class="primary">Run backtest</button>
+        <span id="run-status" class="status" role="status" aria-live="polite"></span>
+      </div>
+    </form>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <section id="results" hidden>
+    <div class="panel">
+      <div class="results-head">
+        <h2 id="results-title">Results</h2>
+        <span id="synthetic-flag" class="badge badge-warn" hidden>synthetic data</span>
+      </div>
+      <div id="halt-notice" class="notice notice-error" hidden></div>
+
+      <div class="stats" id="stats"></div>
+
+      <figure class="chart-wrap">
+        <figcaption>Equity curve</figcaption>
+        <canvas id="equity-chart" height="280"></canvas>
+        <div id="chart-empty" class="empty" hidden>No equity data.</div>
+      </figure>
+    </div>
+
+    <div class="panel">
+      <h2>Trades <span id="trade-count" class="muted"></span></h2>
+      <div class="table-scroll">
+        <table id="trades">
+          <thead>
+            <tr>
+              <th>Opened</th><th>Closed</th><th>Side</th>
+              <th class="num">Entry</th><th class="num">Exit</th>
+              <th class="num">P&amp;L</th><th class="num">Return</th><th>Exit reason</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="no-trades" class="empty" hidden>No trades were taken.</p>
+      <div id="rejections" hidden>
+        <h3>Entries blocked by the risk manager</h3>
+        <ul id="rejection-list"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------------------------------------------------------------- -->
+  <section class="panel" id="live-state">
+    <div class="results-head">
+      <h2>Bot state</h2>
+      <button id="refresh-status" class="icon-button" title="Refresh">↻</button>
+    </div>
+    <div id="status-body"><p class="empty">Loading…</p></div>
+  </section>
+</main>
+
+<footer>
+  <p>
+    CBot is educational software with no warranty and no promise of profit.
+    Backtest results are not predictions. Never trade money you cannot afford to lose.
+  </p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
