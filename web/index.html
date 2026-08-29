@@ -24,11 +24,18 @@
 </header>
 
 <div class="banner" role="note">
-  <strong>Backtests only.</strong> This dashboard cannot place orders — live
-  trading stays on the command line, behind its confirmation locks.
+  <strong>Read-only.</strong> This dashboard runs backtests and contract research.
+  It cannot place orders — live trading stays on the command line, behind its
+  confirmation locks.
 </div>
 
+<nav class="tabs" role="tablist">
+  <button class="tab is-active" role="tab" aria-selected="true" aria-controls="view-backtest" id="tab-backtest">Backtest</button>
+  <button class="tab" role="tab" aria-selected="false" aria-controls="view-research" id="tab-research">Contract research</button>
+</nav>
+
 <main>
+ <div id="view-backtest" role="tabpanel" aria-labelledby="tab-backtest">
   <!-- ---------------------------------------------------------------- -->
   <section class="panel" id="controls">
     <h2>Run a backtest</h2>
@@ -136,6 +143,77 @@
     </div>
     <div id="status-body"><p class="empty">Loading…</p></div>
   </section>
+ </div>
+
+ <!-- ----------------------------------------------------------------- -->
+ <div id="view-research" role="tabpanel" aria-labelledby="tab-research" hidden>
+  <section class="panel">
+    <h2>Review a token contract</h2>
+    <p class="lede">
+      Reads public chain data to show what powers the contract grants, who holds
+      them, and what the deploying address has built before. It reports
+      capabilities, not intent — a mint function is how a stablecoin works and
+      how a rug pull works.
+    </p>
+
+    <form id="research-form">
+      <div class="grid grid-research">
+        <label>
+          <span>Contract address</span>
+          <input id="address" name="address" placeholder="0x…" autocomplete="off" spellcheck="false">
+        </label>
+        <label>
+          <span>Chain</span>
+          <select id="chain" name="chain"></select>
+        </label>
+      </div>
+      <div class="actions">
+        <button type="submit" id="review" class="primary">Review contract</button>
+        <span id="research-status" class="status" role="status" aria-live="polite"></span>
+      </div>
+    </form>
+
+    <div id="key-warning" class="notice notice-warn" hidden>
+      No explorer API key is configured, so lookups will fail. Get a free key at
+      <a href="https://etherscan.io/apis" target="_blank" rel="noopener">etherscan.io/apis</a>
+      and start the server with <code>ETHERSCAN_API_KEY=your_key</code>. One key covers every chain listed.
+    </div>
+  </section>
+
+  <section id="research-results" hidden>
+    <div class="panel">
+      <div class="results-head">
+        <h2 id="token-title">Contract</h2>
+        <span id="risk-badge" class="badge">—</span>
+      </div>
+      <div id="contract-facts" class="fact-grid"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Findings <span id="finding-count" class="muted"></span></h2>
+      <div id="findings"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Deployer and past projects</h2>
+      <div id="deployer-body"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Continue the research</h2>
+      <p class="lede">
+        This tool reads the chain. These are the places to check the things the
+        chain cannot tell you — who the team is, whether liquidity is locked, and
+        whether the token trades as it claims.
+      </p>
+      <div id="research-links" class="link-grid"></div>
+      <div id="research-errors" hidden>
+        <h3>Incomplete data</h3>
+        <ul id="error-list"></ul>
+      </div>
+    </div>
+  </section>
+ </div>
 </main>
 
 <footer>

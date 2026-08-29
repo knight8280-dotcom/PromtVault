@@ -34,8 +34,12 @@
     $("timeframe").addEventListener("change", loadSymbols);
     $("refresh-status").addEventListener("click", loadStatus);
 
+    initTabs();
+    $("research-form").addEventListener("submit", onResearch);
     onSyntheticToggle();
-    await Promise.all([loadStrategies(), loadConfig(), loadStatus(), loadSymbols()]);
+    await Promise.all([
+      loadStrategies(), loadConfig(), loadStatus(), loadSymbols(), loadChains(),
+    ]);
   }
 
   async function getJSON(path, options) {
@@ -462,6 +466,236 @@
 
     const updated = `<p class="muted">Last updated ${fmt.date(status.updated_at)} UTC</p>`;
     body.innerHTML = halted + summary + positions + updated;
+  }
+
+
+  // ------------------------------------------------------------------
+  // Tabs
+  // ------------------------------------------------------------------
+  function initTabs() {
+    const tabs = [
+      ["tab-backtest", "view-backtest"],
+      ["tab-research", "view-research"],
+    ];
+    for (const [tabId, viewId] of tabs) {
+      $(tabId).addEventListener("click", () => {
+        for (const [otherTab, otherView] of tabs) {
+          const active = otherTab === tabId;
+          $(otherTab).classList.toggle("is-active", active);
+          $(otherTab).setAttribute("aria-selected", String(active));
+          $(otherView).hidden = !active;
+        }
+        if (viewId === "view-backtest" && lastResult) drawChart(lastResult.equity_curve);
+      });
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Contract research
+  // ------------------------------------------------------------------
+  async function loadChains() {
+    let data;
+    try {
+      data = await getJSON("/api/chains");
+    } catch {
+      return;
+    }
+    const select = $("chain");
+    select.innerHTML = "";
+    for (const chain of data.chains || []) {
+      const option = document.createElement("option");
+      option.value = chain;
+      option.textContent = chain;
+      option.selected = chain === "ethereum";
+      select.append(option);
+    }
+    $("key-warning").hidden = Boolean(data.configured);
+  }
+
+  async function onResearch(event) {
+    event.preventDefault();
+    const button = $("review");
+    const status = $("research-status");
+    button.disabled = true;
+    status.classList.remove("error");
+    status.textContent = "reading the chain…";
+
+    try {
+      const report = await getJSON("/api/research", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address: $("address").value.trim(),
+          chain: $("chain").value,
+        }),
+      });
+      renderReport(report);
+      status.textContent = "";
+      $("research-results").scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (error) {
+      status.textContent = error.message;
+      status.classList.add("error");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  function renderReport(report) {
+    $("research-results").hidden = false;
+    const f = report.facts;
+
+    const name = f.token_name || f.name || "Unnamed contract";
+    const symbol = f.token_symbol ? ` (${f.token_symbol})` : "";
+    $("token-title").textContent = `${name}${symbol}`;
+
+    const badge = $("risk-badge");
+    badge.textContent = `${report.risk_band} risk · ${report.risk_score}/100`;
+    badge.className = `badge badge-${report.risk_band}`;
+
+    renderFacts(report, f);
+    renderFindings(report.findings);
+    renderDeployer(report);
+    renderLinks(report.links);
+
+    $("research-errors").hidden = !(report.errors || []).length;
+    $("error-list").innerHTML = (report.errors || [])
+      .map((e) => `<li>${escapeHtml(e)}</li>`)
+      .join("");
+  }
+
+  function renderFacts(report, f) {
+    const age = f.age_days === null || f.age_days === undefined
+      ? "unknown"
+      : `${Math.floor(f.age_days)} days old`;
+
+    const owner = f.ownership_renounced === true
+      ? "renounced"
+      : f.owner
+        ? shorten(f.owner)
+        : "could not read";
+
+    let supply = "unknown";
+    if (f.total_supply && f.decimals !== null && f.decimals !== undefined) {
+      const value = Number(f.total_supply) / 10 ** f.decimals;
+      if (Number.isFinite(value)) supply = value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+    }
+
+    const facts = [
+      ["Address", shorten(report.address)],
+      ["Chain", report.chain],
+      ["Source", f.verified ? "verified" : "NOT published"],
+      ["Deployed", f.created_at ? `${f.created_at.slice(0, 10)} · ${age}` : "unknown"],
+      ["Owner", owner],
+      ["Upgradeable", f.is_proxy ? "yes — proxy" : "no"],
+      ["Total supply", supply],
+      ["Compiler", f.compiler || "—"],
+    ];
+
+    $("contract-facts").innerHTML = facts
+      .map(
+        ([label, value]) => `
+        <div class="fact">
+          <div class="fact-label">${label}</div>
+          <div class="fact-value">${escapeHtml(String(value))}</div>
+        </div>`
+      )
+      .join("");
+  }
+
+  function renderFindings(findings) {
+    $("finding-count").textContent = findings.length ? `(${findings.length})` : "";
+    $("findings").innerHTML = findings
+      .map(
+        (f) => `
+        <div class="finding">
+          <div class="finding-stripe stripe-${f.severity}"></div>
+          <div class="finding-body">
+            <div class="finding-head">
+              <span class="finding-title">${escapeHtml(f.title)}</span>
+              <span class="finding-sev sev-${f.severity}">${f.severity}</span>
+            </div>
+            <p class="finding-detail">${escapeHtml(f.detail)}</p>
+            ${f.evidence ? `<div class="finding-evidence">${escapeHtml(f.evidence)}</div>` : ""}
+          </div>
+        </div>`
+      )
+      .join("");
+  }
+
+  function renderDeployer(report) {
+    const d = report.deployer;
+    const body = $("deployer-body");
+    if (!d.address) {
+      body.innerHTML = `<p class="empty">The deploying address could not be determined.</p>`;
+      return;
+    }
+
+    const explorer = report.links.deployer || "#";
+    const others = (d.deployed_contracts || []).filter(
+      (c) => c.address.toLowerCase() !== report.address.toLowerCase()
+    );
+
+    const header = `
+      <div class="fact-grid" style="margin-bottom:16px">
+        <div class="fact">
+          <div class="fact-label">Deployer address</div>
+          <div class="fact-value"><a class="link-url" href="${explorer}" target="_blank" rel="noopener">${escapeHtml(d.address)}</a></div>
+        </div>
+        <div class="fact">
+          <div class="fact-label">First seen</div>
+          <div class="fact-value">${d.first_seen ? d.first_seen.slice(0, 10) : "unknown"}</div>
+        </div>
+        <div class="fact">
+          <div class="fact-label">Past projects found</div>
+          <div class="fact-value">${others.length}${d.partial ? "+" : ""}</div>
+        </div>
+      </div>`;
+
+    const projects = others.length
+      ? `<h3>Other contracts from this address</h3>` +
+        others
+          .map((c) => {
+            const url = explorer.replace(/\/address\/.*$/, `/address/${c.address}`);
+            const when = c.timestamp ? String(c.timestamp).slice(0, 10) : "";
+            return `<div class="project-row">
+                      <a href="${url}" target="_blank" rel="noopener">${escapeHtml(c.address)}</a>
+                      <span class="muted">${when}</span>
+                    </div>`;
+          })
+          .join("") +
+        (d.partial
+          ? `<p class="muted" style="margin-top:10px">List truncated — open the deployer on the explorer for the full history.</p>`
+          : "")
+      : `<p class="empty">No other contracts from this address were found on this chain.</p>`;
+
+    body.innerHTML = header + projects;
+  }
+
+  function renderLinks(links) {
+    const labels = {
+      contract: "Contract on explorer",
+      source: "Verified source code",
+      holders: "Token holders",
+      transfers: "Transfers",
+      deployer: "Deployer address",
+      deployment_tx: "Deployment transaction",
+      dexscreener: "Market data (DexScreener)",
+      honeypot_check: "Honeypot check",
+    };
+    $("research-links").innerHTML = Object.entries(links || {})
+      .map(
+        ([key, url]) => `
+        <a class="link-card" href="${url}" target="_blank" rel="noopener">
+          <div class="fact-label">${labels[key] || key}</div>
+          <div class="link-url">${escapeHtml(url.replace(/^https?:\/\//, ""))}</div>
+        </a>`
+      )
+      .join("");
+  }
+
+  function shorten(value) {
+    if (!value || value.length < 20) return value || "—";
+    return `${value.slice(0, 10)}…${value.slice(-8)}`;
   }
 
   // ------------------------------------------------------------------

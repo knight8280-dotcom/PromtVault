@@ -230,3 +230,51 @@ def test_the_server_source_contains_no_order_submission():
     source = Path(module.__file__).read_text()
     assert "submit(" not in source
     assert "CcxtBroker" not in source
+
+
+# ---------------------------------------------------------------- research
+def test_the_chain_list_is_served(server):
+    status, payload = get(server, "/api/chains")
+    assert status == 200
+    assert "ethereum" in payload["chains"]
+    assert "configured" in payload
+
+
+def test_a_malformed_contract_address_is_rejected(server):
+    status, payload = expect_error(post, server, "/api/research", {"address": "0xnope"})
+    assert status == 400
+    assert "contract address" in payload["error"]
+
+
+def test_an_unknown_chain_is_rejected(server):
+    status, payload = expect_error(
+        post, server, "/api/research",
+        {"address": "0x" + "ab" * 20, "chain": "dogechain"},
+    )
+    assert status == 400
+    assert "unsupported chain" in payload["error"]
+
+
+def test_a_missing_api_key_is_reported_as_a_setup_problem(server, monkeypatch):
+    import os
+
+    if os.environ.get("ETHERSCAN_API_KEY"):
+        pytest.skip("a real API key is configured in this environment")
+    status, payload = expect_error(
+        post, server, "/api/research", {"address": "0x" + "ab" * 20}
+    )
+    # 503, not 400: the browser's request was fine, the server is not set up.
+    assert status == 503
+    assert "etherscan.io/apis" in payload["error"]
+
+
+def test_the_research_endpoint_cannot_write_anything():
+    """Research is read-only: no order path, no state mutation."""
+    from pathlib import Path
+
+    from tradingbot.web import server as module
+
+    source = Path(module.__file__).read_text()
+    research = source[source.index("_run_research") : source.index("_load_candles")]
+    for forbidden in ("save_state", "submit(", "create_order", "open("):
+        assert forbidden not in research

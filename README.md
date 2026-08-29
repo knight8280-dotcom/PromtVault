@@ -234,9 +234,10 @@ tradingbot/
   strategies/       sma_cross, rsi_reversion, breakout
   exchange/         paper broker and ccxt adapter
   data/             OHLCV loading, CSV cache, synthetic generator
+  research/         token contract due diligence (chain sources + heuristics)
   web/              dashboard backend (standard library HTTP server)
 web/                dashboard frontend (no build step, no dependencies)
-tests/              175 tests
+tests/              287 tests
 ```
 
 ## Tests
@@ -245,10 +246,65 @@ tests/              175 tests
 pip install pytest && python -m pytest
 ```
 
-They run offline in a few seconds. The suite covers indicator maths, risk limits
-and circuit breakers, cash and fee accounting, look-ahead prevention, state
-recovery after a crash, the live-trading guards, and the dashboard API — including
-a test asserting the web layer has no path to submitting an order.
+They run offline in a few seconds — no API keys, no network. The suite covers
+indicator maths, risk limits and circuit breakers, cash and fee accounting,
+look-ahead prevention, state recovery after a crash, the live-trading guards, the
+contract heuristics, and the dashboard API — including tests asserting the web
+layer has no path to submitting an order and that the research report never
+claims to know who a team is.
+
+
+## Contract research
+
+Before you trade a token, check what its contract can actually do:
+
+```bash
+export ETHERSCAN_API_KEY=your_key   # free, one key covers every chain
+python -m tradingbot.cli research 0xdAC17F958D2ee523a2206206994597C13D831ec7
+python -m tradingbot.cli research 0x... --chain bsc --json report.json
+```
+
+Supported chains: ethereum, bsc, base, polygon, arbitrum, optimism, avalanche.
+The same review is available in the dashboard's **Contract research** tab.
+
+It reports **capabilities and who holds them**, with the evidence for each:
+
+| Check | Why it matters |
+|---|---|
+| Source verified | Unverified source means nobody can review it. Treated as critical. |
+| Mint function | Supply can be inflated and sold into your liquidity. |
+| Blacklist / bot blocking | Your ability to sell can be revoked after you buy — a honeypot. |
+| Pausable transfers | Trading can be frozen. |
+| Fee setters | Trade fees can be raised, potentially to the point of blocking sells. |
+| Upgradeable proxy | Today's audited code can be replaced tomorrow. |
+| Ownership renounced | Whether those powers are still reachable at all. |
+| Contract and deployer age | Most rug pulls happen within days of deployment. |
+| Deployer's other contracts | The closest thing on-chain to a track record. |
+
+Findings escalate when powers combine: a mint function is *high*; a mint function
+plus a live owner is *critical*, because that is the rug pull rather than the
+capability. Every finding cites the source line or RPC result behind it, so you
+can check the tool rather than trust it.
+
+### On "are the developers doxxed"
+
+**No on-chain tool can answer that, and this one does not pretend to.** Identity
+is off-chain; any tool showing a confident doxxed/anonymous badge is guessing.
+
+What *is* verifiable, and what CBot reports:
+
+- the deployer's address, and when it first transacted
+- **every other contract that address has deployed** — the past-projects question,
+  answered from chain data
+- which address funded it
+- direct links to continue: the explorer, holders, market data, and a honeypot check
+
+A deployer with a history of abandoned tokens is the most useful signal available
+on-chain. A brand-new address with no history is not proof of anything — it is
+just an absence of evidence, and the report says so in those terms.
+
+This tool describes what a contract *can* do. It cannot tell you what anyone
+*intends* to do, and it is not financial advice.
 
 ## Dashboard
 
@@ -264,8 +320,8 @@ The backend is standard library only, so this adds no dependencies. It binds to
 localhost by default; `--host 0.0.0.0` exposes it to your network, and it has no
 authentication, so only do that on a network you trust.
 
-**The dashboard cannot place orders.** It runs backtests and reads saved state,
-nothing more. Live trading stays on the command line where the confirmation locks
+**The dashboard cannot place orders.** It runs backtests, reviews contracts and
+reads saved state, nothing more. Live trading stays on the command line where the confirmation locks
 are — a real order should not be one click away in a browser tab.
 
 Pick a strategy, adjust its parameters and risk settings, and run. Results render

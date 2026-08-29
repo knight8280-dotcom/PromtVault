@@ -6,6 +6,7 @@ Subcommands:
   live      run the live loop with real money (guarded, see `_confirm_live`)
   fetch     download and cache OHLCV history
   serve     run the CBot web dashboard
+  research  review a token contract address before you trade it
   optimize  grid-search strategy parameters over historical data
   strategies / status  introspection helpers
 """
@@ -396,6 +397,133 @@ def cmd_serve(args) -> int:
     return 0
 
 
+SEVERITY_MARKS = {
+    "critical": "!!", "high": "! ", "medium": "~ ", "low": ". ", "good": "+ ", "info": "  ",
+}
+
+
+def cmd_research(args) -> int:
+    """Review a token contract address for the powers it grants and who holds them."""
+    from .research import ContractResearcher, SourceError, is_address, normalise_chain
+
+    if not is_address(args.address):
+        print(f"error: {args.address!r} is not a valid contract address "
+              f"(expected 0x followed by 40 hex characters)", file=sys.stderr)
+        return 1
+
+    try:
+        chain = normalise_chain(args.chain)
+    except SourceError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        report = ContractResearcher(chain).review(args.address, deployer_limit=args.max_deployments)
+    except SourceError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.json:
+        Path(args.json).write_text(json.dumps(report.as_dict(), indent=2, default=str))
+        print(f"  Wrote {args.json}")
+        if not args.print_report:
+            return 0
+
+    _print_report(report)
+    return 0
+
+
+def _print_report(report) -> None:
+    facts = report.facts
+    label = facts.token_name or facts.name or "unknown contract"
+    symbol = f" ({facts.token_symbol})" if facts.token_symbol else ""
+
+    print()
+    print(f"  {label}{symbol}")
+    print(f"  {'=' * 62}")
+    print(f"  Address        {report.address}")
+    print(f"  Chain          {report.chain}")
+    print(f"  Risk           {report.risk_score}/100 — {report.risk_band.upper()}")
+    print(f"  Verified       {'yes' if facts.verified else 'NO — source not published'}")
+    if facts.created_at:
+        age = facts.age_days or 0
+        print(f"  Deployed       {facts.created_at:%Y-%m-%d} ({age:.0f} days ago)")
+    if facts.owner is not None:
+        state = "renounced" if facts.ownership_renounced else facts.owner
+        print(f"  Owner          {state}")
+    if facts.is_proxy:
+        print(f"  Proxy          yes — implementation {facts.implementation or 'unknown'}")
+    if facts.total_supply and facts.decimals is not None:
+        try:
+            supply = int(facts.total_supply) / (10 ** facts.decimals)
+            print(f"  Total supply   {supply:,.0f}")
+        except (ValueError, ZeroDivisionError):
+            pass
+
+    print()
+    print("  Findings")
+    print(f"  {'-' * 62}")
+    for finding in report.by_severity():
+        mark = SEVERITY_MARKS.get(finding.severity.value, "  ")
+        print(f"  {mark} {finding.title}")
+        for line in _wrap(finding.detail, 66):
+            print(f"       {line}")
+        if finding.evidence:
+            print(f"       evidence: {finding.evidence[:100]}")
+        print()
+
+    deployer = report.deployer
+    if deployer.address:
+        print("  Deployer")
+        print(f"  {'-' * 62}")
+        print(f"  Address        {deployer.address}")
+        if deployer.first_seen:
+            print(f"  First seen     {deployer.first_seen:%Y-%m-%d}")
+        if deployer.funded_by:
+            print(f"  Funded by      {deployer.funded_by}")
+
+        others = [d for d in deployer.deployed_contracts
+                  if d.get("address", "").lower() != report.address.lower()]
+        if others:
+            print(f"  Past projects  {len(others)} other contract(s) from this address:")
+            for item in others[:15]:
+                when = item.get("timestamp")
+                stamp = when.strftime("%Y-%m-%d") if hasattr(when, "strftime") else "unknown date"
+                print(f"                   {item['address']}  {stamp}")
+            if deployer.partial:
+                print("                   (list truncated — see the explorer for the full history)")
+        else:
+            print("  Past projects  none found on this chain")
+        print()
+
+    print("  Research links")
+    print(f"  {'-' * 62}")
+    for name, url in report.links.items():
+        print(f"  {name:<15} {url}")
+
+    if report.errors:
+        print()
+        print("  Incomplete data")
+        print(f"  {'-' * 62}")
+        for error in report.errors:
+            print(f"  - {error}")
+
+    print()
+    print("  This reports what the contract CAN do and who can do it. It cannot tell")
+    print("  you intent, and it is not financial advice. Verify anything that matters")
+    print("  against the source yourself.")
+    print()
+
+
+def _wrap(text: str, width: int) -> list[str]:
+    import textwrap
+
+    return textwrap.wrap(text, width) or [""]
+
+
 class _SyntheticSource:
     """Feeds the paper engine generated candles, for offline smoke tests."""
 
@@ -491,6 +619,19 @@ def build_parser() -> argparse.ArgumentParser:
                    help="bind address (default: localhost only)")
     p.add_argument("--port", type=int, default=8000)
     p.set_defaults(func=cmd_serve)
+
+    p = sub.add_parser("research", help="review a token contract address")
+    p.add_argument("address", help="contract address (0x...)")
+    p.add_argument("--chain", default="ethereum",
+                   help="chain to look on (ethereum, bsc, base, polygon, arbitrum, optimism, avalanche)")
+    p.add_argument("--json", help="write the full report to this JSON file")
+    p.add_argument("--print-report", action="store_true",
+                   help="also print the report when writing JSON")
+    p.add_argument("--max-deployments", type=int, default=25,
+                   help="how many of the deployer's other contracts to list")
+    p.add_argument("--log-level", default="WARNING",
+                   choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    p.set_defaults(func=cmd_research, config=None)
 
     p = sub.add_parser("strategies", help="list strategies and their parameters")
     p.add_argument("--log-level", default="WARNING")

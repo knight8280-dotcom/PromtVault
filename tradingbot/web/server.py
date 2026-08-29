@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import mimetypes
+import os
 import threading
 from dataclasses import asdict
 from http import HTTPStatus
@@ -22,6 +23,8 @@ from urllib.parse import parse_qs, urlparse
 from ..backtest import Backtester
 from ..config import Config, ConfigError, from_dict
 from ..data import generate_synthetic, load_history
+from ..research import AuthError, ContractResearcher, SourceError, is_address
+from ..research.sources import CHAINS as RESEARCH_CHAINS
 from ..state import load_state, state_path
 from ..strategies import available_strategies, get_strategy, strategy_class
 
@@ -67,6 +70,8 @@ class CBotHandler(BaseHTTPRequestHandler):
         try:
             if route.path == "/api/backtest":
                 self._send_json(self._run_backtest(self._read_json()))
+            elif route.path == "/api/research":
+                self._send_json(self._run_research(self._read_json()))
             else:
                 raise ApiError("no such endpoint", HTTPStatus.NOT_FOUND)
         except ApiError as exc:
@@ -85,6 +90,11 @@ class CBotHandler(BaseHTTPRequestHandler):
             return self._describe_config()
         if route.path == "/api/status":
             return self._describe_status()
+        if route.path == "/api/chains":
+            return {
+                "chains": sorted(RESEARCH_CHAINS),
+                "configured": bool(os.environ.get("ETHERSCAN_API_KEY")),
+            }
         if route.path == "/api/symbols":
             params = parse_qs(route.query)
             return {"symbols": self._cached_symbols(params.get("timeframe", [None])[0])}
@@ -232,6 +242,34 @@ class CBotHandler(BaseHTTPRequestHandler):
                 for t in result.trades
             ],
         }
+
+    def _run_research(self, body: dict) -> dict:
+        """Review a token contract. Read-only public chain data, nothing else."""
+        address = str(body.get("address") or "").strip()
+        chain = str(body.get("chain") or "ethereum").strip()
+
+        if not is_address(address):
+            raise ApiError(
+                "That does not look like a contract address. Paste the full address: "
+                "0x followed by 40 hex characters."
+            )
+
+        try:
+            researcher = ContractResearcher(chain)
+        except SourceError as exc:
+            raise ApiError(str(exc)) from exc
+
+        try:
+            report = researcher.review(address, deployer_limit=25)
+        except AuthError as exc:
+            # Fixable setup problem, not a bad request from the browser.
+            raise ApiError(str(exc), HTTPStatus.SERVICE_UNAVAILABLE) from exc
+        except SourceError as exc:
+            raise ApiError(f"could not complete the review: {exc}", HTTPStatus.BAD_GATEWAY) from exc
+        except ValueError as exc:
+            raise ApiError(str(exc)) from exc
+
+        return report.as_dict()
 
     def _load_candles(self, body: dict, config: Config, symbol: str, timeframe: str):
         if body.get("synthetic"):
