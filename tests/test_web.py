@@ -53,7 +53,7 @@ def test_the_dashboard_page_is_served(server):
 
 
 def test_static_assets_are_served(server):
-    for path, marker in (("/styles.css", "--accent"), ("/app.js", "drawChart")):
+    for path, marker in (("/styles.css", "--accent"), ("/js/charts.js", "equityChart")):
         with urlopen(f"{server}{path}", timeout=10) as response:
             assert marker in response.read().decode()
 
@@ -181,7 +181,8 @@ def test_missing_cached_data_explains_how_to_get_it(server):
         post, server, "/api/backtest", {"symbol": "NOPE/USDT", "synthetic": False}
     )
     assert status == 400
-    assert "fetch" in payload["error"]
+    assert "no cached data" in payload["error"]
+    assert "synthetic" in payload["error"]
 
 
 def test_an_absurd_bar_count_is_rejected(server):
@@ -222,14 +223,31 @@ def test_the_api_offers_no_way_to_place_an_order(server):
         assert exc.value.code == 404
 
 
-def test_the_server_source_contains_no_order_submission():
+def test_no_web_module_can_submit_an_order():
+    """The whole web package must have no path to placing a trade."""
     from pathlib import Path
 
-    from tradingbot.web import server as module
+    import tradingbot.web as package
 
-    source = Path(module.__file__).read_text()
-    assert "submit(" not in source
-    assert "CcxtBroker" not in source
+    # Named precisely: the job runner has its own `submit`, which is not an order.
+    forbidden = ("create_order", "CcxtBroker", "PaperBroker", "TradingEngine",
+                 "Order(", "broker.submit")
+    web_dir = Path(package.__file__).parent
+    for path in sorted(web_dir.glob("*.py")):
+        source = path.read_text()
+        for symbol in forbidden:
+            assert symbol not in source, f"{path.name} references {symbol}"
+
+
+def test_the_browser_javascript_has_no_order_path():
+    """Nothing in the front end should even name an order endpoint."""
+    from pathlib import Path
+
+    web = Path(__file__).resolve().parent.parent / "web"
+    for path in sorted(web.rglob("*.js")):
+        source = path.read_text()
+        for forbidden in ("/api/order", "/api/live", "/api/trade", "createOrder"):
+            assert forbidden not in source, f"{path} references {forbidden}"
 
 
 # ---------------------------------------------------------------- research
@@ -268,13 +286,205 @@ def test_a_missing_api_key_is_reported_as_a_setup_problem(server, monkeypatch):
     assert "etherscan.io/apis" in payload["error"]
 
 
-def test_the_research_endpoint_cannot_write_anything():
-    """Research is read-only: no order path, no state mutation."""
+def test_the_web_layer_never_writes_bot_state():
+    """Analysis is read-only: the site reads saved state and never mutates it."""
     from pathlib import Path
 
-    from tradingbot.web import server as module
+    import tradingbot.web as package
 
-    source = Path(module.__file__).read_text()
-    research = source[source.index("_run_research") : source.index("_load_candles")]
-    for forbidden in ("save_state", "submit(", "create_order", "open("):
-        assert forbidden not in research
+    for path in sorted(Path(package.__file__).parent.glob("*.py")):
+        source = path.read_text()
+        assert "save_state" not in source, f"{path.name} writes bot state"
+
+
+# ==================================================================
+# The expanded site API
+# ==================================================================
+def poll_job(base, job_id, timeout=120):
+    """Follow a background job to completion, the way the page does."""
+    import time
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        _, job = get(base, f"/api/jobs/{job_id}")
+        if job["state"] in ("done", "failed", "cancelled"):
+            return job
+        time.sleep(0.4)
+    raise AssertionError(f"job {job_id} did not finish in {timeout}s")
+
+
+# ------------------------------------------------------------ reference
+def test_datasets_are_listed(server):
+    status, payload = get(server, "/api/datasets")
+    assert status == 200
+    assert isinstance(payload["datasets"], list)
+
+
+def test_fee_tiers_are_listed(server):
+    status, payload = get(server, "/api/fee-tiers")
+    assert status == 200
+    keys = {t["key"] for t in payload["tiers"]}
+    assert {"binance", "binance_perp", "coinbase"} <= keys
+    for tier in payload["tiers"]:
+        assert tier["maker"] <= tier["taker"]
+
+
+def test_execution_costs_are_served(server):
+    status, payload = get(server, "/api/execution")
+    assert status == 200
+    tier = payload["tiers"][0]
+    assert tier["rows"]
+    assert {"mode", "fill_rate", "effective_fee", "round_trip", "breakeven_pct"} <= set(tier["rows"][0])
+
+
+def test_the_config_endpoint_reports_execution_settings(server):
+    _, payload = get(server, "/api/config")
+    assert "fee_tier" in payload and "prefer_maker" in payload
+
+
+# -------------------------------------------------------------- regime
+def test_regime_analysis_returns_a_summary_and_timeline(server):
+    status, payload = post(
+        server, "/api/regime", {"synthetic": True, "bars": 1500, "period": 30}
+    )
+    assert status == 200
+    assert payload["current"]["regime"] in ("trending", "choppy", "volatile", "quiet", "unknown")
+    assert payload["summary"]
+    assert payload["timeline"]
+    assert abs(sum(payload["summary"].values()) - 1.0) < 1e-6
+
+
+def test_regime_needs_enough_bars(server):
+    status, payload = expect_error(
+        post, server, "/api/regime", {"synthetic": True, "bars": 100, "period": 300}
+    )
+    assert status == 400
+
+
+# ------------------------------------------------------- backtest extras
+def test_a_backtest_reports_the_benchmark_curve(server):
+    _, payload = post(server, "/api/backtest", {"strategy": "sma_cross", "synthetic": True, "bars": 1200})
+    assert payload["benchmark_curve"]
+    assert payload["metrics"]["benchmark_return_pct"] is not None
+    assert len(payload["benchmark_curve"]) == len(payload["equity_curve"])
+
+
+def test_regime_gating_can_be_requested(server):
+    _, payload = post(
+        server, "/api/backtest",
+        {"strategy": "sma_cross", "synthetic": True, "bars": 2000, "regime_gate": True},
+    )
+    assert "regime_gated" in payload["strategy"]
+    assert "regime_blocked" in payload
+
+
+def test_an_unknown_regime_mode_is_rejected(server):
+    status, _ = expect_error(
+        post, server, "/api/backtest",
+        {"strategy": "sma_cross", "synthetic": True, "regime_gate": True, "regime_allow": "sideways"},
+    )
+    assert status == 400
+
+
+# ------------------------------------------------------------- jobs API
+def test_validate_runs_as_a_job_and_returns_four_checks(server):
+    _, started = post(
+        server, "/api/validate",
+        {"strategy": "sma_cross", "synthetic": True, "bars": 1200,
+         "params": {"fast_period": 10, "slow_period": 30}},
+    )
+    assert started["state"] in ("queued", "running")
+
+    job = poll_job(server, started["id"])
+    assert job["state"] == "done", job.get("error")
+    result = job["result"]
+    assert result["total"] == 4
+    assert len(result["checks"]) == 4
+    assert result["cost_curve"]
+    assert 0 <= result["passed"] <= 4
+
+
+def test_walkforward_runs_as_a_job(server):
+    _, started = post(
+        server, "/api/walkforward",
+        {"strategy": "sma_cross", "grid": {"fast_period": [10, 20]},
+         "synthetic": True, "bars": 2500, "train_bars": 800, "test_bars": 300},
+    )
+    job = poll_job(server, started["id"], timeout=240)
+    assert job["state"] == "done", job.get("error")
+    result = job["result"]
+    assert result["windows"]
+    assert "degradation" in result and "parameter_stability" in result
+
+
+def test_an_oversized_grid_is_refused(server):
+    _, started = post(
+        server, "/api/walkforward",
+        {"strategy": "sma_cross", "synthetic": True, "bars": 2500,
+         "grid": {"fast_period": list(range(2, 20)), "slow_period": list(range(20, 40))}},
+    )
+    job = poll_job(server, started["id"])
+    assert job["state"] == "failed"
+    assert "too many" in job["error"]
+
+
+def test_a_missing_grid_is_refused(server):
+    _, started = post(server, "/api/walkforward", {"strategy": "sma_cross", "synthetic": True})
+    job = poll_job(server, started["id"])
+    assert job["state"] == "failed"
+    assert "grid" in job["error"]
+
+
+def test_a_job_can_be_cancelled_through_the_api(server):
+    _, started = post(
+        server, "/api/walkforward",
+        {"strategy": "sma_cross", "grid": {"fast_period": [5, 10, 20], "slow_period": [30, 50, 80]},
+         "synthetic": True, "bars": 6000, "train_bars": 800, "test_bars": 200},
+    )
+    status, payload = post(server, f"/api/jobs/{started['id']}/cancel", {})
+    assert status == 200
+    assert payload["cancelled"] == started["id"]
+
+    job = poll_job(server, started["id"], timeout=120)
+    assert job["state"] in ("cancelled", "done")
+
+
+def test_cancelling_an_unknown_job_is_a_conflict(server):
+    status, _ = expect_error(post, server, "/api/jobs/nosuchjob/cancel", {})
+    assert status == 409
+
+
+def test_an_unknown_job_id_is_404(server):
+    status, _ = expect_error(get, server, "/api/jobs/deadbeef")
+    assert status == 404
+
+
+def test_jobs_are_listed(server):
+    post(server, "/api/validate", {"strategy": "sma_cross", "synthetic": True, "bars": 1000})
+    status, payload = get(server, "/api/jobs")
+    assert status == 200
+    assert payload["jobs"]
+    assert {"id", "kind", "state", "progress"} <= set(payload["jobs"][0])
+
+
+# ------------------------------------------------------------- static
+def test_every_javascript_module_is_served(server):
+    """A missing module breaks the whole site, since one import failure halts it."""
+    modules = [
+        "/js/main.js", "/js/api.js", "/js/router.js", "/js/ui.js",
+        "/js/charts.js", "/js/format.js",
+        "/js/views/overview.js", "/js/views/backtest.js", "/js/views/validate.js",
+        "/js/views/walkforward.js", "/js/views/regime.js", "/js/views/carry.js",
+        "/js/views/execution.js", "/js/views/contracts.js", "/js/views/status.js",
+        "/js/views/data.js", "/js/views/jobs.js",
+    ]
+    for path in modules:
+        with urlopen(f"{server}{path}", timeout=10) as response:
+            assert response.status == 200, path
+            assert response.headers["Content-Type"].startswith("text/javascript") or \
+                   response.headers["Content-Type"].startswith("application/javascript"), path
+
+
+def test_javascript_is_not_served_with_a_sniffable_type(server):
+    with urlopen(f"{server}/js/main.js", timeout=10) as response:
+        assert response.headers["X-Content-Type-Options"] == "nosniff"

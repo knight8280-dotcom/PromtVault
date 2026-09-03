@@ -314,9 +314,9 @@ tradingbot/
   exchange/         paper broker and ccxt adapter
   data/             OHLCV loading, CSV cache, CoinGecko, synthetic generator
   research/         token contract due diligence (chain sources + heuristics)
-  web/              dashboard backend (standard library HTTP server)
-web/                dashboard frontend (no build step, no dependencies)
-tests/              430 tests
+  web/              site backend: HTTP server, API handlers, background jobs
+web/                site frontend: router, views, charts (no build step)
+tests/              464 tests
 ```
 
 ## Tests
@@ -557,29 +557,45 @@ just an absence of evidence, and the report says so in those terms.
 This tool describes what a contract *can* do. It cannot tell you what anyone
 *intends* to do, and it is not financial advice.
 
-## Dashboard
+## The web app
 
-CBot ships with a web dashboard — run backtests from a browser, see the equity
-curve, and check on a running bot:
+Everything above has a browser front end:
 
 ```bash
 python -m tradingbot.cli serve -c config/config.yaml
-# CBot dashboard: http://127.0.0.1:8000
+# CBot: http://127.0.0.1:8000
 ```
 
-The backend is standard library only, so this adds no dependencies. It binds to
+Standard library only — no build step, no bundler, no dependencies. It binds to
 localhost by default; `--host 0.0.0.0` exposes it to your network, and it has no
 authentication, so only do that on a network you trust.
 
-**The dashboard cannot place orders.** It runs backtests, reviews contracts and
-reads saved state, nothing more. Live trading stays on the command line where the confirmation locks
-are — a real order should not be one click away in a browser tab.
+| Page | What it does |
+|---|---|
+| **Overview** | Mode, open positions, cached data, and where to start |
+| **Backtest** | Run a strategy, always charted against buy and hold, with a hoverable equity curve and the full trade list |
+| **Validate** | The four checks, with a bootstrap interval, a random-entry comparison and a fee-sensitivity curve |
+| **Walk-forward** | Build a parameter grid, watch windows run, see in-sample versus out-of-sample and parameter stability |
+| **Regime** | Time spent in each regime, and price coloured by regime |
+| **Funding carry** | Scan perpetual funding, ranked net of your fee tier |
+| **Execution costs** | Every fee tier and the move a trade must capture to break even |
+| **Contract review** | The full due-diligence report with evidence per finding |
+| **Bot status** | Open positions and risk counters from saved state |
+| **Data** | What history is cached, and how to fetch more |
+| **Jobs** | Long-running analysis, with progress and cancellation |
 
-Pick a strategy, adjust its parameters and risk settings, and run. Results render
-as summary statistics, an equity curve, and a trade-by-trade table with exit
-reasons. The **Bot state** panel reads `state/bot_state.json`, so you can watch a
-paper or live session from the same page. Symbols you have fetched appear as
-autocomplete suggestions; the dashboard reads the cache and never downloads.
+**Background jobs.** Validation, walk-forward and carry scans take minutes, so
+they run on a worker thread and the page polls for progress rather than holding a
+request open until the browser gives up. Jobs report real progress, can be
+cancelled mid-run, and live in the server's memory — they die with it, which is
+correct for something you started from a terminal.
+
+**The site cannot place orders.** It runs analysis and reads saved state, nothing
+more. There is no order path in the web layer at all, and tests assert it — both
+that no Python module in `tradingbot/web/` references a broker or an order, and
+that no front-end file even names an order endpoint. Live trading stays on the
+command line where the confirmation locks are.
+
 
 ## License
 
