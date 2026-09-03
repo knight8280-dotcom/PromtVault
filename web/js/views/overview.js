@@ -1,6 +1,6 @@
 import { api } from "../api.js";
-import { day, escapeHtml, money, signedPct, tone } from "../format.js";
-import { notice, panel, table, tiles } from "../ui.js";
+import { day, escapeHtml, minute, money } from "../format.js";
+import { jobLink, notice, panel, table, tiles } from "../ui.js";
 
 export const overview = {
   title: "Overview",
@@ -12,13 +12,15 @@ export const overview = {
 
   async mount(root) {
     const body = root.querySelector("#overview-body");
-    const [config, status, datasets] = await Promise.all([
+    const [config, status, datasets, jobList] = await Promise.all([
       api.config(), api.status(), api.datasets(),
+      api.jobs().catch(() => ({ jobs: [] })),
     ]);
 
     const positions = status.positions || [];
     const sets = datasets.datasets || [];
     const totalBars = sets.reduce((sum, d) => sum + d.bars, 0);
+    const recent = (jobList.jobs || []).slice(0, 6);
 
     const summary = tiles([
       { label: "Mode", value: escapeHtml(config.mode), note: config.testnet ? "testnet" : "production" },
@@ -47,6 +49,20 @@ export const overview = {
       `${day(d.start)} → ${day(d.end)}`, money(d.last_price),
     ]);
 
+    const pill = { done: "pill-good", failed: "pill-bad", cancelled: "pill-muted", running: "pill-info", queued: "pill-muted" };
+    const jobRows = recent.map((j) => {
+      const link = jobLink(j);
+      const active = j.state === "running" || j.state === "queued";
+      const openable = link && (active || j.has_result);
+      return [
+        { html: `<span class="pill ${pill[j.state] || "pill-muted"}">${escapeHtml(j.state)}</span>` },
+        j.kind,
+        { text: j.label || "" },
+        minute(j.created_at),
+        { html: openable ? `<a class="ghost-btn" href="${link}">${active ? "Follow" : "Open"}</a>` : "" },
+      ];
+    });
+
     body.innerHTML = `
       ${halted}
       ${panel("At a glance", summary)}
@@ -56,6 +72,13 @@ export const overview = {
           ? table(["Symbol", "Side", "Amount", "Entry", "Stop", "Opened"], positionRows,
                   { align: ["", "", "num", "num", "num", ""] })
           : `<p class="empty">No open positions. Run <code>paper</code> or <code>live</code> from the CLI to start trading.</p>`
+      )}
+      ${panel(
+        "Recent analysis",
+        recent.length
+          ? table(["State", "Kind", "What", "Started", ""], jobRows, { align: ["", "", "", "", ""] })
+          : `<p class="empty">Nothing run yet this session. Results of validation, walk-forward and carry scans appear here.</p>`,
+        { actions: recent.length ? `<a class="ghost-btn" href="#/jobs">All jobs</a>` : "" }
       )}
       ${panel(
         "Cached market data",
@@ -70,7 +93,8 @@ export const overview = {
           <p>
             The honest workflow is: get real data, backtest, then <strong>attack the
             result</strong> before believing it. A single backtest number tells you
-            almost nothing on its own.
+            almost nothing on its own. Each step hands its setup to the next, so what
+            gets validated is exactly what was run.
           </p>
           <ul>
             <li><a href="#/backtest">Backtest</a> — run a strategy, always against buy and hold.</li>

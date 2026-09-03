@@ -430,7 +430,7 @@ def cmd_serve(args) -> int:
     config = _resolve_config(args)
     from .web import serve
 
-    serve(config, host=args.host, port=args.port)
+    serve(config, host=args.host, port=args.port, open_browser=args.open)
     return 0
 
 
@@ -1036,7 +1036,10 @@ def build_parser() -> argparse.ArgumentParser:
     common(p)
     p.add_argument("--host", default="127.0.0.1",
                    help="bind address (default: localhost only)")
-    p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--port", type=int, default=8000,
+                   help="port to listen on; 0 picks a free one (default: 8000)")
+    p.add_argument("--open", action="store_true",
+                   help="open the dashboard in your default browser once it is up")
     p.set_defaults(func=cmd_serve)
 
     p = sub.add_parser("research", help="review a token contract address")

@@ -133,6 +133,69 @@ export function equityChart(canvas, series, { benchmark = null, height = 280 } =
   return { series, benchmark, x, y, pad, plotW, plotH, tint, width, height, start };
 }
 
+/**
+ * Drawdown from the running peak, as an "underwater" area. The max-drawdown
+ * tile gives one number; this shows how long each hole lasted, which is what
+ * decides whether anyone would actually keep running the strategy through it.
+ */
+export function drawdownChart(canvas, series, { height = 120 } = {}) {
+  if (!series || series.length < 2) return;
+  const { ctx, width } = prepare(canvas, height);
+
+  const pad = { top: 8, right: 70, bottom: 8, left: 8 };
+  const plotW = width - pad.left - pad.right;
+  const plotH = height - pad.top - pad.bottom;
+
+  let peak = -Infinity;
+  const drawdowns = series.map((p) => {
+    peak = Math.max(peak, p.equity);
+    return peak > 0 ? ((p.equity - peak) / peak) * 100 : 0;
+  });
+  const worst = Math.min(...drawdowns, -0.5);
+
+  const x = (i) => pad.left + (i / (series.length - 1)) * plotW;
+  const y = (v) => pad.top + (v / worst) * plotH;
+
+  ctx.font = '11px "IBM Plex Mono", monospace';
+  ctx.textBaseline = "middle";
+  ctx.strokeStyle = token("--border");
+  ctx.fillStyle = token("--muted");
+  ctx.lineWidth = 1;
+  for (const value of [0, worst / 2, worst]) {
+    const py = Math.round(y(value)) + 0.5;
+    ctx.beginPath();
+    ctx.moveTo(pad.left, py);
+    ctx.lineTo(pad.left + plotW, py);
+    ctx.stroke();
+    ctx.fillText(`${value.toFixed(1)}%`, pad.left + plotW + 8, py);
+  }
+
+  const tint = token("--loss");
+  ctx.beginPath();
+  ctx.moveTo(x(0), y(0));
+  drawdowns.forEach((d, i) => ctx.lineTo(x(i), y(d)));
+  ctx.lineTo(x(series.length - 1), y(0));
+  ctx.closePath();
+  ctx.fillStyle = withAlpha(tint, 0.18);
+  ctx.fill();
+
+  ctx.beginPath();
+  drawdowns.forEach((d, i) => (i ? ctx.lineTo(x(i), y(d)) : ctx.moveTo(x(i), y(d))));
+  ctx.strokeStyle = tint;
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = "round";
+  ctx.stroke();
+
+  // Mark the deepest point: the moment the strategy asked the most of its operator.
+  const at = drawdowns.indexOf(Math.min(...drawdowns));
+  if (drawdowns[at] < 0) {
+    ctx.beginPath();
+    ctx.arc(x(at), y(drawdowns[at]), 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = tint;
+    ctx.fill();
+  }
+}
+
 /** Attach a crosshair and tooltip to an equity chart. */
 export function attachHover(canvas, tooltip, getPlot, redraw) {
   const move = (event) => {

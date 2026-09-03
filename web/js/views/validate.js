@@ -1,11 +1,17 @@
 import { api, followJob } from "../api.js";
 import { sweepChart } from "../charts.js";
-import { escapeHtml, pct, signedPct, tone } from "../format.js";
+import { escapeHtml, signedPct, tone } from "../format.js";
+import { setParams } from "../router.js";
 import {
-  checkField, el, notice, numberField, panel, progressBar, selectField, verdict, reportInvalid,} from "../ui.js";
+  datasetOptions, datasetRequest, pick, setupFromParams, setupFromRequest, setupToParams,
+} from "../setup.js";
+import {
+  el, notice, numberField, onResize, panel, progressBar, selectField, verdict, reportInvalid,
+} from "../ui.js";
 
 let strategies = [];
 let lastResult = null;
+let controller = null;
 
 export const validate = {
   title: "Validate",
@@ -37,55 +43,64 @@ export const validate = {
       <div id="v-results"></div>`;
   },
 
-  async mount(root) {
+  async mount(root, params) {
     const [config, list, datasets] = await Promise.all([
       api.config(), api.strategies(), api.datasets(),
     ]);
     strategies = list.strategies;
     const sets = datasets.datasets || [];
 
+    // A job id in the link: pick up a run that was started earlier, whether it
+    // is still going or finished while this page was away. The server kept the
+    // request, so the form can show what that run was.
+    const jobId = params.get("job");
+    let linked = setupFromParams(params);
+    if (jobId && !linked) {
+      const job = await api.job(jobId).catch(() => null);
+      linked = setupFromRequest(job?.request);
+    }
+    const dataset = datasetOptions(sets, linked?.dataset);
+    const wantedStrategy = strategies.some((s) => s.name === linked?.strategy)
+      ? linked.strategy
+      : config.strategy;
+
     el("v-controls").innerHTML = [
-      selectField("Strategy", "v-strategy", strategies.map((s) => ({ value: s.name, label: s.name })), config.strategy),
-      selectField(
-        "Dataset", "v-dataset",
-        [{ value: "__synthetic__", label: "synthetic (demo)" },
-         ...sets.map((d) => ({ value: `${d.symbol}|${d.timeframe}`, label: `${d.symbol} ${d.timeframe}` }))],
-        sets.length ? `${sets[0].symbol}|${sets[0].timeframe}` : "__synthetic__"
-      ),
-      numberField("Risk per trade", "v-risk", config.risk.risk_per_trade, { step: 0.001 }),
-      numberField("Fee per side", "v-fee", config.fee_rate, { step: 0.0001 }),
+      selectField("Strategy", "v-strategy", strategies.map((s) => ({ value: s.name, label: s.name })), wantedStrategy),
+      selectField("Dataset", "v-dataset", dataset.options, dataset.selected),
+      numberField("Risk per trade", "v-risk", pick(linked, "risk", config.risk.risk_per_trade), { step: 0.001 }),
+      numberField("Fee per side", "v-fee", pick(linked, "fee", config.fee_rate), { step: 0.0001 }),
     ].join("");
 
-    el("v-strategy").addEventListener("change", renderParams);
-    renderParams();
+    el("v-strategy").addEventListener("change", () => renderParams());
+    renderParams(linked?.params);
     reportInvalid(el("v-form"), el("v-hint"));
     el("v-form").addEventListener("submit", (e) => { e.preventDefault(); run(); });
-    window.addEventListener("resize", redraw);
+    onResize(redraw);
+
+    if (linked && !jobId) {
+      el("v-hint").textContent = "setup carried over — press Run validation";
+    }
+    if (jobId) await follow(jobId);
   },
 };
 
-function renderParams() {
+function renderParams(overrides = {}) {
   const spec = strategies.find((s) => s.name === el("v-strategy").value);
   el("v-params").innerHTML = (spec?.params || [])
     .map((p) => {
       const id = `v-p-${p.name}`;
+      const value = overrides?.[p.name] ?? p.default;
       if (typeof p.default === "boolean") {
         return selectField(p.name.replace(/_/g, " "), id,
-          [{ value: "false", label: "false" }, { value: "true", label: "true" }], String(p.default));
+          [{ value: "false", label: "false" }, { value: "true", label: "true" }], String(value));
       }
-      return numberField(p.name.replace(/_/g, " "), id, p.default ?? 0);
+      return numberField(p.name.replace(/_/g, " "), id, value ?? 0);
     })
     .join("");
 }
 
-let controller = null;
-
-async function run() {
+function currentSetup() {
   const spec = strategies.find((s) => s.name === el("v-strategy").value);
-  const dataset = el("v-dataset").value;
-  const synthetic = dataset === "__synthetic__";
-  const [symbol, timeframe] = synthetic ? [null, null] : dataset.split("|");
-
   const params = {};
   for (const p of spec?.params || []) {
     const node = el(`v-p-${p.name}`);
@@ -93,7 +108,43 @@ async function run() {
       params[p.name] = typeof p.default === "boolean" ? node.value === "true" : Number(node.value);
     }
   }
+  return {
+    strategy: el("v-strategy").value,
+    params,
+    dataset: el("v-dataset").value,
+    fee: Number(el("v-fee").value),
+    risk: Number(el("v-risk").value),
+  };
+}
 
+async function run() {
+  const setup = currentSetup();
+  const hint = el("v-hint");
+  hint.classList.remove("is-error");
+  hint.textContent = "";
+  el("v-results").innerHTML = "";
+
+  let job;
+  try {
+    job = await api.startValidate({
+      strategy: setup.strategy, params: setup.params,
+      ...datasetRequest(setup.dataset),
+      bars: 3000,
+      fee_rate: setup.fee,
+      risk: { risk_per_trade: setup.risk },
+    });
+  } catch (error) {
+    hint.textContent = error.message;
+    hint.classList.add("is-error");
+    return;
+  }
+
+  // The link now names the job, so a refresh comes back to this run.
+  setParams(setupToParams(setup, { job: job.id }));
+  await follow(job.id);
+}
+
+async function follow(jobId) {
   const button = el("v-run");
   const cancel = el("v-cancel");
   const hint = el("v-hint");
@@ -102,24 +153,14 @@ async function run() {
   button.disabled = true;
   cancel.hidden = false;
   hint.classList.remove("is-error");
-  hint.textContent = "";
   progress.hidden = false;
   progress.innerHTML = progressBar(0, "starting…");
-  el("v-results").innerHTML = "";
 
   controller = new AbortController();
+  cancel.onclick = () => { api.cancelJob(jobId).catch(() => {}); controller.abort(); };
+
   try {
-    const job = await api.startValidate({
-      strategy: el("v-strategy").value, params,
-      symbol: symbol || undefined, timeframe: timeframe || undefined,
-      synthetic, bars: 3000,
-      fee_rate: Number(el("v-fee").value),
-      risk: { risk_per_trade: Number(el("v-risk").value) },
-    });
-
-    cancel.onclick = () => { api.cancelJob(job.id).catch(() => {}); controller.abort(); };
-
-    lastResult = await followJob(job.id, (j) => {
+    lastResult = await followJob(jobId, (j) => {
       progress.innerHTML = progressBar(j.progress, j.message);
     }, { signal: controller.signal });
 
@@ -197,6 +238,9 @@ function renderResults(result) {
       )
     : "";
 
+  // Walk-forward is the next step, and it should test exactly this setup.
+  const handoff = setupToParams(currentSetup()).toString();
+
   el("v-results").innerHTML = `
     <section class="panel">
       <div class="panel-head">
@@ -205,6 +249,10 @@ function renderResults(result) {
       </div>
       ${banner}
       ${checks}
+      <div class="next-steps" style="margin-top:16px">
+        <a class="ghost-btn" href="#/walkforward?${handoff}">Walk-forward this setup →</a>
+        <a class="ghost-btn" href="#/backtest?${handoff}">Back to the backtest</a>
+      </div>
     </section>
     ${bootPanel}
     ${basePanel}

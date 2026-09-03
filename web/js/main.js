@@ -1,7 +1,6 @@
 /* Entry point: wires the router, the shell chrome and the theme. */
 
 import { api } from "./api.js";
-import { escapeHtml } from "./format.js";
 import { route, start } from "./router.js";
 import { el, toast } from "./ui.js";
 
@@ -58,28 +57,50 @@ function initTheme() {
 // ----------------------------------------------------------------- nav
 function initNav() {
   const sidebar = el("sidebar");
-  el("menu-toggle").addEventListener("click", () => sidebar.classList.toggle("is-open"));
+  const toggle = el("menu-toggle");
+  const setOpen = (open) => {
+    sidebar.classList.toggle("is-open", open);
+    toggle.setAttribute("aria-expanded", String(open));
+  };
 
-  // On narrow screens the sidebar overlays content, so close it after a jump.
+  toggle.addEventListener("click", () => setOpen(!sidebar.classList.contains("is-open")));
+
+  // On narrow screens the sidebar overlays content, so close it after a jump,
+  // on Escape, and on a tap anywhere outside it.
   for (const link of document.querySelectorAll(".nav-link")) {
-    link.addEventListener("click", () => sidebar.classList.remove("is-open"));
+    link.addEventListener("click", () => setOpen(false));
   }
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && sidebar.classList.contains("is-open")) setOpen(false);
+  });
+  document.addEventListener("click", (event) => {
+    if (!sidebar.classList.contains("is-open")) return;
+    if (sidebar.contains(event.target) || toggle.contains(event.target)) return;
+    setOpen(false);
+  });
 }
 
 function markActive(path) {
   for (const link of document.querySelectorAll(".nav-link")) {
-    link.classList.toggle("is-active", link.dataset.route === path);
+    const active = link.dataset.route === path;
+    link.classList.toggle("is-active", active);
+    if (active) link.setAttribute("aria-current", "page");
+    else link.removeAttribute("aria-current");
   }
 }
 
 // ------------------------------------------------------------- job badge
 async function pollJobs() {
+  // A background tab does not need a live badge, and the server does not need
+  // the traffic.
+  if (document.hidden) return;
   try {
     const { jobs: list } = await api.jobs();
     const active = list.filter((j) => j.state === "running" || j.state === "queued").length;
     const badge = el("job-badge");
     badge.hidden = active === 0;
     badge.textContent = String(active);
+    badge.setAttribute("aria-label", `${active} running`);
   } catch {
     /* the server may be restarting; the badge is not worth an error */
   }
@@ -115,6 +136,9 @@ async function boot() {
 
   pollJobs();
   setInterval(pollJobs, 4000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) pollJobs();
+  });
 }
 
 boot();

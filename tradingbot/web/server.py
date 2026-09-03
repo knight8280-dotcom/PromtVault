@@ -34,6 +34,15 @@ MAX_BODY_BYTES = 256 * 1024
 #: Long-running endpoints run as background jobs and are polled.
 JOB_KINDS = {"validate", "walkforward", "carry"}
 
+#: Everything the page needs is served from this origin. Inline styles are
+#: allowed because chart legends and bars carry their colour as a style
+#: attribute; `data:` images cover the favicon; blobs cover CSV downloads.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
+    "base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+)
+
 
 class CBotHandler(BaseHTTPRequestHandler):
     """Serves the site's static files and its JSON API."""
@@ -98,7 +107,8 @@ class CBotHandler(BaseHTTPRequestHandler):
                 "configured": bool(os.environ.get("ETHERSCAN_API_KEY")),
             }
         if path == "/api/jobs":
-            return {"jobs": [job.as_dict() for job in self.jobs.list_jobs()]}
+            # Summaries only: this list is polled every few seconds.
+            return {"jobs": [job.as_dict(include_result=False) for job in self.jobs.list_jobs()]}
         if path.startswith("/api/jobs/"):
             job = self.jobs.get(path.rsplit("/", 1)[-1])
             if job is None:
@@ -141,7 +151,9 @@ class CBotHandler(BaseHTTPRequestHandler):
         else:
             runner = lambda ctx: api.run_carry(body, ctx)  # noqa: E731
 
-        job = self.jobs.submit(kind, runner)
+        job = self.jobs.submit(
+            kind, runner, label=api.describe_request(kind, body, config), request=body
+        )
         return job.as_dict()
 
     def _research(self, body: dict) -> dict:
@@ -210,6 +222,11 @@ class CBotHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Cache-Control", "no-cache")
+        if target.suffix == ".html":
+            # The site loads nothing from anywhere else, so say so: a stray
+            # script tag from any source is refused by the browser outright.
+            self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+            self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
         self.wfile.write(body)
 
@@ -227,7 +244,9 @@ def make_server(config: Config, host: str = "127.0.0.1", port: int = 8000) -> Th
     return httpd
 
 
-def serve(config: Config, host: str = "127.0.0.1", port: int = 8000) -> None:
+def serve(
+    config: Config, host: str = "127.0.0.1", port: int = 8000, open_browser: bool = False
+) -> None:
     """Run the dashboard until interrupted."""
     httpd = make_server(config, host, port)
     if host not in ("127.0.0.1", "localhost", "::1"):
@@ -237,9 +256,16 @@ def serve(config: Config, host: str = "127.0.0.1", port: int = 8000) -> None:
             host,
         )
 
-    print(f"\n  CBot dashboard: http://{host}:{port}\n  Ctrl-C to stop.\n")
+    # Port 0 asks the OS for a free port; report the one it chose.
+    port = httpd.server_address[1]
+    url = f"http://{'127.0.0.1' if host == '0.0.0.0' else host}:{port}"
+    print(f"\n  CBot dashboard: {url}\n  Ctrl-C to stop.\n")
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()
+    if open_browser:
+        import webbrowser
+
+        webbrowser.open(url)
     try:
         thread.join()
     except KeyboardInterrupt:

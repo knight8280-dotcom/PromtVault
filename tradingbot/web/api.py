@@ -12,6 +12,7 @@ not somewhere a real order should be one click away.
 from __future__ import annotations
 
 import logging
+import threading
 from dataclasses import asdict
 from http import HTTPStatus
 from pathlib import Path
@@ -108,6 +109,53 @@ def describe_status(config: Config) -> dict:
     }
 
 
+#: Dataset summaries keyed by (path, mtime, size). Every page asks for the
+#: dataset list on mount, and a year of minute bars is half a million rows, so
+#: parsing each CSV on every page load made the site feel slow for no reason.
+#: A changed file changes its key, so `fetch` writing new bars is picked up.
+_dataset_cache: dict[tuple, dict] = {}
+_dataset_lock = threading.Lock()
+
+
+def _describe_dataset(path: Path) -> dict | None:
+    symbol, _, timeframe = path.stem.rpartition("_")
+    if not symbol:
+        return None
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    key = (str(path), stat.st_mtime_ns, stat.st_size)
+
+    with _dataset_lock:
+        cached = _dataset_cache.get(key)
+    if cached is not None:
+        return cached
+
+    try:
+        candles = csv_store.load(path)
+    except (ValueError, OSError) as exc:
+        log.debug("skipping unreadable dataset %s: %s", path, exc)
+        return None
+    if not candles:
+        return None
+    summary = {
+        "symbol": symbol.replace("-", "/"),
+        "timeframe": timeframe,
+        "bars": len(candles),
+        "start": candles[0].timestamp.isoformat(),
+        "end": candles[-1].timestamp.isoformat(),
+        "last_price": candles[-1].close,
+    }
+    with _dataset_lock:
+        # Drop stale entries for the same file so a rewritten CSV does not
+        # leave its old summary behind forever.
+        for old in [k for k in _dataset_cache if k[0] == key[0]]:
+            del _dataset_cache[old]
+        _dataset_cache[key] = summary
+    return summary
+
+
 def describe_datasets(config: Config) -> dict:
     """What market data is cached locally, so the UI can offer it."""
     data_dir = Path(config.data_dir)
@@ -116,27 +164,28 @@ def describe_datasets(config: Config) -> dict:
 
     out = []
     for path in sorted(data_dir.glob("*.csv")):
-        symbol, _, timeframe = path.stem.rpartition("_")
-        if not symbol:
-            continue
-        try:
-            candles = csv_store.load(path)
-        except (ValueError, OSError) as exc:
-            log.debug("skipping unreadable dataset %s: %s", path, exc)
-            continue
-        if not candles:
-            continue
-        out.append(
-            {
-                "symbol": symbol.replace("-", "/"),
-                "timeframe": timeframe,
-                "bars": len(candles),
-                "start": candles[0].timestamp.isoformat(),
-                "end": candles[-1].timestamp.isoformat(),
-                "last_price": candles[-1].close,
-            }
-        )
+        summary = _describe_dataset(path)
+        if summary is not None:
+            out.append(summary)
     return {"datasets": out}
+
+
+def describe_request(kind: str, body: dict, base: Config) -> str:
+    """A one-line label for a queued job, so a listing says what it was."""
+    if kind == "carry":
+        venue = str(body.get("venue") or "binance")
+        symbols = body.get("symbols")
+        scope = f"{len(symbols)} symbols" if isinstance(symbols, list) and symbols else (
+            f"top {int(body.get('limit') or 20)}"
+        )
+        return f"{venue} · {scope}"
+
+    strategy = str(body.get("strategy") or base.strategy.name)
+    if body.get("synthetic"):
+        data = f"synthetic {int(body.get('bars') or 3000)} bars"
+    else:
+        data = f"{body.get('symbol') or base.symbols[0]} {body.get('timeframe') or base.timeframe}"
+    return f"{strategy} · {data}"
 
 
 def describe_execution(body: dict) -> dict:

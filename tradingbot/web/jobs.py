@@ -49,6 +49,11 @@ class Cancelled(Exception):
 class Job:
     id: str
     kind: str
+    #: What the job is about, for a listing: "sma_cross · BTC/USDT 1h".
+    label: str = ""
+    #: The request that started it, so a page reopening the job can put the
+    #: same setup back in its form and hand it on to the next step.
+    request: dict | None = None
     state: JobState = JobState.QUEUED
     progress: float = 0.0
     message: str = ""
@@ -66,18 +71,29 @@ class Job:
         end = self.finished_at or datetime.now(timezone.utc)
         return (end - self.started_at).total_seconds()
 
-    def as_dict(self) -> dict:
-        return {
+    def as_dict(self, include_result: bool = True) -> dict:
+        """Serialise for the API.
+
+        The job list is polled every few seconds by every open tab, and a
+        walk-forward result carries an equity curve and a trade list. Listings
+        therefore carry a summary only; the per-job endpoint has the result.
+        """
+        payload = {
             "id": self.id,
             "kind": self.kind,
             "state": self.state.value,
             "progress": round(self.progress, 4),
             "message": self.message,
-            "result": self.result,
+            "label": self.label,
             "error": self.error,
             "elapsed_seconds": round(self.elapsed_seconds, 2),
             "created_at": self.created_at.isoformat(),
+            "has_result": self.result is not None,
         }
+        if include_result:
+            payload["result"] = self.result
+            payload["request"] = self.request
+        return payload
 
 
 class JobContext:
@@ -112,10 +128,12 @@ class JobRunner:
         self.max_jobs = max_jobs
 
     # ------------------------------------------------------------------
-    def submit(self, kind: str, fn: Callable[[JobContext], dict]) -> Job:
+    def submit(
+        self, kind: str, fn: Callable[[JobContext], dict], label: str = "", request: dict | None = None
+    ) -> Job:
         """Start `fn` on a worker thread and return its job immediately."""
         self._evict()
-        job = Job(id=uuid.uuid4().hex[:12], kind=kind)
+        job = Job(id=uuid.uuid4().hex[:12], kind=kind, label=label, request=request)
         with self._lock:
             self._jobs[job.id] = job
 

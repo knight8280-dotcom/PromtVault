@@ -1,7 +1,9 @@
 import { api, followJob } from "../api.js";
-import { escapeHtml, pct } from "../format.js";
+import { escapeHtml } from "../format.js";
+import { setParams } from "../router.js";
 import {
-  checkField, el, notice, numberField, panel, progressBar, selectField, table, verdict, reportInvalid,} from "../ui.js";
+  checkField, el, notice, numberField, panel, progressBar, selectField, table, verdict, reportInvalid,
+} from "../ui.js";
 
 let controller = null;
 
@@ -42,7 +44,7 @@ export const carry = {
       <div id="c-results"></div>`;
   },
 
-  async mount(root) {
+  async mount(root, params) {
     let tiers = [];
     try {
       tiers = (await api.feeTiers()).tiers;
@@ -67,26 +69,21 @@ export const carry = {
 
     reportInvalid(el("c-form"), el("c-hint"));
     el("c-form").addEventListener("submit", (e) => { e.preventDefault(); run(); });
+
+    const jobId = params.get("job");
+    if (jobId) await follow(jobId);
   },
 };
 
 async function run() {
-  const button = el("c-run");
-  const cancel = el("c-cancel");
   const hint = el("c-hint");
-  const progress = el("c-progress");
-
-  button.disabled = true;
-  cancel.hidden = false;
   hint.textContent = "";
   hint.classList.remove("is-error");
-  progress.hidden = false;
-  progress.innerHTML = progressBar(0, "starting…");
   el("c-results").innerHTML = "";
 
-  controller = new AbortController();
+  let job;
   try {
-    const job = await api.startCarry({
+    job = await api.startCarry({
       venue: el("c-venue").value,
       spot_tier: el("c-spot").value,
       perp_tier: el("c-perp").value,
@@ -95,9 +92,30 @@ async function run() {
       maker: el("c-maker").checked,
       fill_rate: Number(el("c-fill").value),
     });
+  } catch (error) {
+    el("c-results").innerHTML = notice(escapeHtml(error.message), "error");
+    return;
+  }
 
-    cancel.onclick = () => { api.cancelJob(job.id).catch(() => {}); controller.abort(); };
-    const result = await followJob(job.id, (j) => {
+  setParams(new URLSearchParams({ job: job.id }));
+  await follow(job.id);
+}
+
+async function follow(jobId) {
+  const button = el("c-run");
+  const cancel = el("c-cancel");
+  const progress = el("c-progress");
+
+  button.disabled = true;
+  cancel.hidden = false;
+  progress.hidden = false;
+  progress.innerHTML = progressBar(0, "starting…");
+
+  controller = new AbortController();
+  cancel.onclick = () => { api.cancelJob(jobId).catch(() => {}); controller.abort(); };
+
+  try {
+    const result = await followJob(jobId, (j) => {
       progress.innerHTML = progressBar(j.progress, j.message);
     }, { signal: controller.signal });
 
@@ -112,7 +130,6 @@ async function run() {
          run <code>python -m tradingbot.cli carry</code> from your own machine.`,
       "error"
     );
-    hint.textContent = "";
   } finally {
     button.disabled = false;
     cancel.hidden = true;

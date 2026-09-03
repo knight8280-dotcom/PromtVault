@@ -488,3 +488,128 @@ def test_every_javascript_module_is_served(server):
 def test_javascript_is_not_served_with_a_sniffable_type(server):
     with urlopen(f"{server}/js/main.js", timeout=10) as response:
         assert response.headers["X-Content-Type-Options"] == "nosniff"
+
+
+# ==================================================================
+# Listing, resuming and linking results
+# ==================================================================
+def test_the_job_list_carries_summaries_and_the_job_endpoint_the_result(server):
+    """The list is polled every few seconds; results can be megabytes."""
+    _, started = post(server, "/api/validate", {"strategy": "sma_cross", "synthetic": True, "bars": 1000})
+    job = poll_job(server, started["id"])
+    assert job["result"] is not None
+    assert job["has_result"] is True
+    assert job["label"] == "sma_cross · synthetic 1000 bars"
+
+    _, listing = get(server, "/api/jobs")
+    row = next(j for j in listing["jobs"] if j["id"] == started["id"])
+    assert "result" not in row
+    assert row["has_result"] is True
+    assert row["label"] == job["label"]
+
+
+def test_a_job_label_names_real_data_when_it_is_used(server):
+    _, started = post(server, "/api/validate", {"strategy": "breakout", "symbol": "ETH/USDT", "timeframe": "4h"})
+    assert started["label"] == "breakout · ETH/USDT 4h"
+    poll_job(server, started["id"])  # fails cleanly: no cached data
+
+
+def test_a_carry_job_label_names_the_venue(server):
+    _, started = post(server, "/api/carry", {"venue": "bybit", "limit": 7})
+    assert started["label"] == "bybit · top 7"
+    poll_job(server, started["id"])
+
+
+# ----------------------------------------------------------- headers
+def test_the_page_carries_a_content_security_policy(server):
+    with urlopen(f"{server}/", timeout=10) as response:
+        csp = response.headers["Content-Security-Policy"]
+    assert "default-src 'self'" in csp
+    assert "script-src 'self'" in csp
+    assert "frame-ancestors 'none'" in csp
+    assert "unsafe-eval" not in csp
+
+
+def test_the_index_page_loads_nothing_from_another_origin():
+    """The CSP forbids it, so any such tag would silently fail in the browser."""
+    import re
+    from pathlib import Path
+
+    index = (Path(__file__).resolve().parent.parent / "web" / "index.html").read_text()
+    for url in re.findall(r'(?:src|href)="([^"]+)"', index):
+        assert not url.startswith(("http:", "https:", "//")), url
+
+
+# ---------------------------------------------------------- datasets
+def test_dataset_summaries_are_cached_until_the_file_changes(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    from tradingbot.data import csv_store
+    from tradingbot.models import Candle
+    from tradingbot.web import api
+
+    def candles(n, start=datetime(2024, 1, 1, tzinfo=timezone.utc)):
+        return [
+            Candle(start + timedelta(hours=i), 100.0, 101.0, 99.0, 100.0 + i, 1.0)
+            for i in range(n)
+        ]
+
+    path = tmp_path / "BTC-USDT_1h.csv"
+    csv_store.save(path, candles(10))
+    config = from_dict({"symbols": ["BTC/USDT"], "timeframe": "1h", "data_dir": str(tmp_path)})
+
+    first = api.describe_datasets(config)["datasets"]
+    assert len(first) == 1 and first[0]["bars"] == 10
+
+    calls = []
+    real_load = csv_store.load
+    monkeypatch.setattr(csv_store, "load", lambda p: calls.append(p) or real_load(p))
+    assert api.describe_datasets(config)["datasets"][0]["bars"] == 10
+    assert calls == [], "an unchanged file must not be re-parsed"
+
+    # More bars written: the file's size changes and the summary follows.
+    csv_store.save(path, candles(25))
+    assert api.describe_datasets(config)["datasets"][0]["bars"] == 25
+    assert calls == [path]
+
+
+# ---------------------------------------------------------- frontend
+def test_every_front_end_module_parses():
+    """A syntax error in one module blanks the whole site. Node, when present,
+    can parse ES modules; the server test above only proves they are served."""
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+
+    web = Path(__file__).resolve().parent.parent / "web"
+    for path in sorted(web.rglob("*.js")):
+        # --check parses as CommonJS unless the file is .mjs, so hand node a
+        # copy under that name.
+        result = subprocess.run(
+            [node, "--input-type=module", "--check"],
+            input=path.read_text(), capture_output=True, text=True,
+        )
+        assert result.returncode == 0, f"{path.name}: {result.stderr}"
+
+
+def test_the_new_front_end_modules_are_served(server):
+    with urlopen(f"{server}/js/setup.js", timeout=10) as response:
+        assert "setupFromParams" in response.read().decode()
+
+
+def test_a_job_keeps_the_request_it_was_started_with(server):
+    """A page reopening a job from the list refills its form from this."""
+    body = {"strategy": "sma_cross", "synthetic": True, "bars": 1000,
+            "params": {"fast_period": 12, "slow_period": 40}, "fee_rate": 0.0005}
+    _, started = post(server, "/api/validate", body)
+    _, job = get(server, f"/api/jobs/{started['id']}")
+    assert job["request"] == body
+
+    _, listing = get(server, "/api/jobs")
+    row = next(j for j in listing["jobs"] if j["id"] == started["id"])
+    assert "request" not in row  # summaries stay small
+    poll_job(server, started["id"])

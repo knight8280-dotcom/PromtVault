@@ -304,6 +304,12 @@ legend {
 }
 .ghost-btn:hover, .icon-btn:hover { border-color: var(--accent); color: var(--accent); }
 .icon-btn { padding: 7px 11px; }
+a.ghost-btn { display: inline-block; text-decoration: none; line-height: 1.3; }
+td a.ghost-btn, td .ghost-btn { padding: 4px 10px; font-size: 11.5px; }
+.row-actions { display: inline-flex; gap: 6px; }
+
+/* Where a result hands off to the next page in the workflow. */
+.next-steps { display: flex; gap: 10px; flex-wrap: wrap; }
 
 .hint { color: var(--muted); font-size: 12px; font-family: var(--mono); }
 .hint.is-error { color: var(--loss); font-family: var(--sans); }

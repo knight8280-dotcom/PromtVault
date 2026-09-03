@@ -155,6 +155,45 @@ export function toast(message, kind = "info") {
   setTimeout(() => node.remove(), 6000);
 }
 
+/** Where a finished job's result can be viewed. */
+export const JOB_ROUTES = { validate: "/validate", walkforward: "/walkforward", carry: "/carry" };
+
+export function jobLink(job) {
+  const path = JOB_ROUTES[job.kind];
+  return path ? `#${path}?job=${encodeURIComponent(job.id)}` : null;
+}
+
+/**
+ * Hand the viewer a CSV. Built in the page from data it already has, so no
+ * server endpoint is needed and nothing is written to disk on the server.
+ */
+export function downloadCsv(filename, headers, rows) {
+  const cell = (value) => {
+    const text = value === null || value === undefined ? "" : String(value);
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const lines = [headers, ...rows].map((row) => row.map(cell).join(","));
+  const blob = new Blob([`${lines.join("\n")}\n`], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/**
+ * A window listener that survives re-mounting. Each page adds a resize
+ * handler on mount; without this, every visit to the page stacked another
+ * one, and each redraw ran once per visit.
+ */
+export function onResize(handler) {
+  window.removeEventListener("resize", handler);
+  window.addEventListener("resize", handler);
+}
+
 export function metricTiles(m) {
   const excess = m.excess_return_pct ?? 0;
   return tiles([

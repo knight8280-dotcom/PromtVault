@@ -1,7 +1,14 @@
 import { api, followJob } from "../api.js";
-import { attachHover, equityChart } from "../charts.js";
+import { attachHover, drawdownChart, equityChart } from "../charts.js";
 import { escapeHtml, money, signedPct, tone } from "../format.js";
-import { el, notice, numberField, panel, progressBar, selectField, table, verdict, reportInvalid,} from "../ui.js";
+import { setParams } from "../router.js";
+import {
+  datasetOptions, datasetRequest, setupFromParams, setupFromRequest, setupToParams,
+} from "../setup.js";
+import {
+  el, notice, numberField, onResize, panel, progressBar, selectField, table, verdict,
+  reportInvalid,
+} from "../ui.js";
 
 let strategies = [];
 let lastResult = null;
@@ -39,32 +46,52 @@ export const walkforward = {
       <div id="wf-results"></div>`;
   },
 
-  async mount(root) {
+  async mount(root, params) {
     const [config, list, datasets] = await Promise.all([
       api.config(), api.strategies(), api.datasets(),
     ]);
     strategies = list.strategies;
     const sets = datasets.datasets || [];
 
+    // What to pre-fill: the link's own setup, or the request a job being
+    // reopened from the Jobs page was started with.
+    const jobId = params.get("job");
+    let linked = setupFromParams(params);
+    let saved = gridFromParams(params);
+    let windows = { train: params.get("train"), test: params.get("test"), scorer: params.get("scorer") };
+    if (jobId && !linked) {
+      const request = (await api.job(jobId).catch(() => null))?.request;
+      linked = setupFromRequest(request);
+      if (request?.grid) {
+        saved = Object.fromEntries(
+          Object.entries(request.grid).map(([name, values]) => [name, [].concat(values).join(",")])
+        );
+        windows = { train: request.train_bars, test: request.test_bars, scorer: request.scorer };
+      }
+    }
+
+    const dataset = datasetOptions(sets, linked?.dataset, { withBars: true });
+    const wantedStrategy = strategies.some((s) => s.name === linked?.strategy)
+      ? linked.strategy
+      : config.strategy;
+    const scorers = ["sharpe", "return", "calmar", "excess"];
+
     el("wf-controls").innerHTML = [
-      selectField("Strategy", "wf-strategy", strategies.map((s) => ({ value: s.name, label: s.name })), config.strategy),
-      selectField(
-        "Dataset", "wf-dataset",
-        [{ value: "__synthetic__", label: "synthetic (demo)" },
-         ...sets.map((d) => ({ value: `${d.symbol}|${d.timeframe}`, label: `${d.symbol} ${d.timeframe} (${d.bars})` }))],
-        sets.length ? `${sets[0].symbol}|${sets[0].timeframe}` : "__synthetic__"
-      ),
-      numberField("Train bars", "wf-train", 800, { step: 50, min: 50 }),
-      numberField("Test bars", "wf-test", 250, { step: 50, min: 50 }),
-      selectField("Optimise for", "wf-scorer",
-        ["sharpe", "return", "calmar", "excess"].map((v) => ({ value: v, label: v })), "sharpe"),
+      selectField("Strategy", "wf-strategy", strategies.map((s) => ({ value: s.name, label: s.name })), wantedStrategy),
+      selectField("Dataset", "wf-dataset", dataset.options, dataset.selected),
+      numberField("Train bars", "wf-train", Number(windows.train) || 800, { step: 50, min: 50 }),
+      numberField("Test bars", "wf-test", Number(windows.test) || 250, { step: 50, min: 50 }),
+      selectField("Optimise for", "wf-scorer", scorers.map((v) => ({ value: v, label: v })),
+        scorers.includes(windows.scorer) ? windows.scorer : "sharpe"),
     ].join("");
 
-    el("wf-strategy").addEventListener("change", renderGrid);
-    renderGrid();
+    el("wf-strategy").addEventListener("change", () => renderGrid());
+    renderGrid(linked?.params, saved);
     reportInvalid(el("wf-form"), el("wf-hint"));
     el("wf-form").addEventListener("submit", (e) => { e.preventDefault(); run(); });
-    window.addEventListener("resize", redraw);
+    onResize(redraw);
+
+    if (jobId) await follow(jobId);
   },
 };
 
@@ -81,7 +108,21 @@ function rank(name) {
   return name.startsWith("atr_") ? 90 : 50;
 }
 
-function renderGrid() {
+/** A grid saved in the link: g.fast_period=5,10,20 */
+function gridFromParams(params) {
+  const grid = {};
+  for (const [key, raw] of params.entries()) {
+    if (key.startsWith("g.") && raw.trim()) grid[key.slice(2)] = raw;
+  }
+  return grid;
+}
+
+/**
+ * Build the grid inputs. `centre` is a linked setup's parameters, so a grid
+ * suggested for a backtest that was just run brackets the values it used
+ * rather than the strategy defaults; `saved` is an explicit grid from the link.
+ */
+function renderGrid(centre = {}, saved = {}) {
   const spec = strategies.find((s) => s.name === el("wf-strategy").value);
   // Only numeric parameters make sense to sweep; booleans are set, not searched.
   const numeric = (spec?.params || [])
@@ -91,19 +132,21 @@ function renderGrid() {
   // Pre-fill only the first two. Every window runs the full grid, so suggesting
   // three values for five parameters would be 243 combinations before the user
   // has touched anything — past the server's limit and slow besides.
+  const hasSaved = Object.keys(saved).length > 0;
   el("wf-grid").innerHTML = numeric
     .map((p, index) => {
-      const base = p.default;
-      const suggestion =
-        index < 2
-          ? [...new Set([
-              Math.max(1, Math.round(base * 0.5)),
-              base,
-              Math.round(base * 1.5),
-            ])].join(",")
-          : "";
+      const base = centre?.[p.name] ?? p.default;
+      let suggestion = "";
+      if (hasSaved) suggestion = saved[p.name] || "";
+      else if (index < 2) {
+        suggestion = [...new Set([
+          Math.max(1, Math.round(base * 0.5)),
+          base,
+          Math.round(base * 1.5),
+        ])].join(",");
+      }
       return `<label><span class="field-label">${escapeHtml(p.name.replace(/_/g, " "))}</span>
-        <input id="wf-g-${p.name}" value="${suggestion}" placeholder="blank = keep default"></label>`;
+        <input id="wf-g-${p.name}" value="${escapeHtml(suggestion)}" placeholder="blank = keep default"></label>`;
     })
     .join("");
   updateGridCount();
@@ -116,12 +159,12 @@ function renderGrid() {
 /** Show the combination count as the grid is edited, before the server refuses it. */
 function updateGridCount() {
   const hint = el("wf-hint");
-  const combos = Object.values(readGrid()).reduce((total, values) => total * values.length, 1);
   const grid = readGrid();
   if (!Object.keys(grid).length) {
     hint.textContent = "";
     return;
   }
+  const combos = Object.values(grid).reduce((total, values) => total * values.length, 1);
   hint.classList.toggle("is-error", combos > 240);
   hint.textContent =
     combos > 240
@@ -143,19 +186,53 @@ function readGrid() {
   return grid;
 }
 
+function linkParams(grid, extra = {}) {
+  const gridParams = {};
+  for (const [name, values] of Object.entries(grid)) gridParams[`g.${name}`] = values.join(",");
+  return setupToParams(
+    { strategy: el("wf-strategy").value, dataset: el("wf-dataset").value },
+    {
+      train: el("wf-train").value, test: el("wf-test").value, scorer: el("wf-scorer").value,
+      ...gridParams, ...extra,
+    }
+  );
+}
+
 async function run() {
   const grid = readGrid();
+  const hint = el("wf-hint");
 
   if (!Object.keys(grid).length) {
-    el("wf-hint").textContent = "Give at least one parameter a list of values to sweep.";
-    el("wf-hint").classList.add("is-error");
+    hint.textContent = "Give at least one parameter a list of values to sweep.";
+    hint.classList.add("is-error");
     return;
   }
 
-  const dataset = el("wf-dataset").value;
-  const synthetic = dataset === "__synthetic__";
-  const [symbol, timeframe] = synthetic ? [null, null] : dataset.split("|");
+  hint.textContent = "";
+  hint.classList.remove("is-error");
+  el("wf-results").innerHTML = "";
 
+  let job;
+  try {
+    job = await api.startWalkforward({
+      strategy: el("wf-strategy").value, grid,
+      ...datasetRequest(el("wf-dataset").value),
+      bars: 5000,
+      train_bars: Number(el("wf-train").value),
+      test_bars: Number(el("wf-test").value),
+      scorer: el("wf-scorer").value,
+    });
+  } catch (error) {
+    hint.textContent = error.message;
+    hint.classList.add("is-error");
+    return;
+  }
+
+  setParams(linkParams(grid, { job: job.id }));
+  await follow(job.id);
+}
+
+async function follow(jobId) {
   const button = el("wf-run");
   const cancel = el("wf-cancel");
   const hint = el("wf-hint");
@@ -163,25 +240,15 @@ async function run() {
 
   button.disabled = true;
   cancel.hidden = false;
-  hint.textContent = "";
   hint.classList.remove("is-error");
   progress.hidden = false;
   progress.innerHTML = progressBar(0, "starting…");
-  el("wf-results").innerHTML = "";
 
   controller = new AbortController();
-  try {
-    const job = await api.startWalkforward({
-      strategy: el("wf-strategy").value, grid,
-      symbol: symbol || undefined, timeframe: timeframe || undefined,
-      synthetic, bars: 5000,
-      train_bars: Number(el("wf-train").value),
-      test_bars: Number(el("wf-test").value),
-      scorer: el("wf-scorer").value,
-    });
+  cancel.onclick = () => { api.cancelJob(jobId).catch(() => {}); controller.abort(); };
 
-    cancel.onclick = () => { api.cancelJob(job.id).catch(() => {}); controller.abort(); };
-    lastResult = await followJob(job.id, (j) => {
+  try {
+    lastResult = await followJob(jobId, (j) => {
       progress.innerHTML = progressBar(j.progress, j.message || "running windows…");
     }, { signal: controller.signal, interval: 1200 });
 
@@ -251,6 +318,10 @@ function renderResults(r) {
         <canvas id="wf-chart" height="260"></canvas>
         <div class="tooltip" id="wf-tip" hidden></div>
       </figure>
+      <figure class="chart-wrap" style="margin-top:16px">
+        <figcaption>Drawdown from peak</figcaption>
+        <canvas id="wf-dd" height="120"></canvas>
+      </figure>
     </section>
     ${panel("Windows", table(["#", "Parameters chosen on training data", "In-sample", "Out-of-sample", "Equity after"], rows,
             { align: ["", "", "num", "num", "num"] }))}
@@ -258,10 +329,13 @@ function renderResults(r) {
       `<p class="lede">A parameter the optimiser rechooses every window is being fitted to noise rather than to something real.</p>${stability}`)}`;
 
   redraw();
-  attachHover(el("wf-chart"), el("wf-tip"), () => plot, redraw);
+  attachHover(el("wf-chart"), el("wf-tip"), () => plot, () => {
+    plot = equityChart(el("wf-chart"), lastResult.equity_curve);
+  });
 }
 
 function redraw() {
   if (!lastResult || !el("wf-chart")) return;
   plot = equityChart(el("wf-chart"), lastResult.equity_curve);
+  drawdownChart(el("wf-dd"), lastResult.equity_curve);
 }

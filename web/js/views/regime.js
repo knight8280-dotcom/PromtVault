@@ -1,7 +1,7 @@
 import { api } from "../api.js";
 import { regimeChart, regimeColors } from "../charts.js";
 import { escapeHtml } from "../format.js";
-import { barRows, el, notice, numberField, panel, selectField, tiles, reportInvalid,} from "../ui.js";
+import { barRows, el, notice, numberField, onResize, panel, selectField, tiles, reportInvalid } from "../ui.js";
 
 let lastResult = null;
 
@@ -46,7 +46,7 @@ export const regime = {
 
     reportInvalid(el("r-form"), el("r-hint"));
     el("r-form").addEventListener("submit", (e) => { e.preventDefault(); run(); });
-    window.addEventListener("resize", redraw);
+    onResize(redraw);
     await run();
   },
 };

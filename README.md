@@ -316,7 +316,7 @@ tradingbot/
   research/         token contract due diligence (chain sources + heuristics)
   web/              site backend: HTTP server, API handlers, background jobs
 web/                site frontend: router, views, charts (no build step)
-tests/              464 tests
+tests/              473 tests
 ```
 
 ## Tests
@@ -562,18 +562,19 @@ This tool describes what a contract *can* do. It cannot tell you what anyone
 Everything above has a browser front end:
 
 ```bash
-python -m tradingbot.cli serve -c config/config.yaml
+python -m tradingbot.cli serve -c config/config.yaml --open
 # CBot: http://127.0.0.1:8000
 ```
 
 Standard library only — no build step, no bundler, no dependencies. It binds to
 localhost by default; `--host 0.0.0.0` exposes it to your network, and it has no
-authentication, so only do that on a network you trust.
+authentication, so only do that on a network you trust. `--open` launches your
+browser once the server is up; `--port 0` picks a free port.
 
 | Page | What it does |
 |---|---|
 | **Overview** | Mode, open positions, cached data, and where to start |
-| **Backtest** | Run a strategy, always charted against buy and hold, with a hoverable equity curve and the full trade list |
+| **Backtest** | Run a strategy, always charted against buy and hold, with a hoverable equity curve, a drawdown chart and the full trade list (downloadable as CSV) |
 | **Validate** | The four checks, with a bootstrap interval, a random-entry comparison and a fee-sensitivity curve |
 | **Walk-forward** | Build a parameter grid, watch windows run, see in-sample versus out-of-sample and parameter stability |
 | **Regime** | Time spent in each regime, and price coloured by regime |
@@ -584,17 +585,33 @@ authentication, so only do that on a network you trust.
 | **Data** | What history is cached, and how to fetch more |
 | **Jobs** | Long-running analysis, with progress and cancellation |
 
+**The setup travels with you.** Each step hands its exact setup to the next: a
+backtest result offers *Validate this setup* and *Walk-forward this setup*, and
+the receiving page arrives pre-filled with the same strategy, parameters, dataset
+and costs — so what gets validated is what was run, not a retyped approximation.
+The address bar always holds the current setup, so a result can be refreshed,
+bookmarked, or pasted to someone else:
+
+```
+#/backtest?strategy=sma_cross&dataset=BTC/USDT|1h&p.fast_period=12&p.slow_period=50&fee=0.001
+```
+
 **Background jobs.** Validation, walk-forward and carry scans take minutes, so
 they run on a worker thread and the page polls for progress rather than holding a
 request open until the browser gives up. Jobs report real progress, can be
 cancelled mid-run, and live in the server's memory — they die with it, which is
-correct for something you started from a terminal.
+correct for something you started from a terminal. Leaving the page does not
+lose a job: the link carries its id, the Overview and Jobs pages list recent
+runs, and *Open* brings a finished result back with the form filled in from the
+request that produced it.
 
 **The site cannot place orders.** It runs analysis and reads saved state, nothing
 more. There is no order path in the web layer at all, and tests assert it — both
 that no Python module in `tradingbot/web/` references a broker or an order, and
 that no front-end file even names an order endpoint. Live trading stays on the
-command line where the confirmation locks are.
+command line where the confirmation locks are. The page is also served with a
+Content-Security-Policy that allows nothing from any other origin, so a stray
+script tag cannot load anything even if one were introduced.
 
 
 ## License
